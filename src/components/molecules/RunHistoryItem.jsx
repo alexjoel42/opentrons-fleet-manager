@@ -31,7 +31,7 @@ export default function RunHistoryItem({ run, errorContext, onGenerateReport }) 
               </p>
             </div>
           </div>
-          {run.status === 'error' && (
+          {(run.status === 'error' || run.status === 'failed') && (
             <Button
               variant="outline"
               size="sm"
@@ -39,36 +39,54 @@ export default function RunHistoryItem({ run, errorContext, onGenerateReport }) 
               className="text-blue-600 hover:text-blue-700"
             >
               <Download className="w-4 h-4 mr-2" />
-              Get Resolution Info
+              Download Troubleshooting
             </Button>
           )}
         </div>
 
-        {expanded && errorContext && errorContext.length > 0 && (
+        {expanded && run.actions && run.actions.length > 0 && (
           <div className="mt-4 pl-9">
             <div className="bg-red-50 border border-red-200 rounded-md p-3">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-red-800">Error Context</p>
-                  {errorContext.map((ctx, idx) => (
-                    <div key={idx} className="mt-3">
-                      <p className="text-sm text-red-700 font-medium mb-2">
-                        {ctx.error?.detail || 'Unknown error'}
-                      </p>
-                      <div className="bg-white rounded border border-red-200 p-2 text-xs font-mono">
-                        {ctx.context?.map((cmd, cmdIdx) => (
-                          <div 
-                            key={cmdIdx}
-                            className={`py-1 ${cmd.isError ? 'bg-red-100 text-red-900 font-bold' : 'text-gray-700'}`}
-                          >
-                            <span className="text-gray-400 mr-2">{cmd.lineNumber}:</span>
-                            {cmd.command} - {cmd.status}
-                          </div>
-                        ))}
-                      </div>
+                  <p className="text-sm font-semibold text-red-800 mb-2">Run Log (Error Context)</p>
+                  <div className="bg-white rounded border border-red-200 p-3 text-xs font-mono max-h-96 overflow-y-auto">
+                    {run.actions.map((action, idx) => {
+                      const hasError = action.error;
+                      const timestamp = format(new Date(action.createdAt), 'HH:mm:ss');
+                      
+                      return (
+                        <div 
+                          key={idx}
+                          className={`py-1 ${hasError ? 'bg-red-100 text-red-900 font-bold px-2 -mx-2' : 'text-gray-700'}`}
+                        >
+                          <span className="text-gray-500 mr-2">[{timestamp}]</span>
+                          <span className="text-blue-600">{action.actionType}</span>
+                          {action.params && (
+                            <span className="text-gray-600 ml-2">
+                              {JSON.stringify(action.params)}
+                            </span>
+                          )}
+                          {hasError && (
+                            <div className="text-red-700 mt-1 ml-20">
+                              ERROR: {action.error}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {run.errors && run.errors.length > 0 && (
+                    <div className="mt-3 p-2 bg-red-100 rounded">
+                      <p className="text-sm font-semibold text-red-800">Error Details:</p>
+                      {run.errors.map((error, idx) => (
+                        <p key={idx} className="text-sm text-red-700 mt-1">
+                          {error.errorType}: {error.detail}
+                        </p>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             </div>

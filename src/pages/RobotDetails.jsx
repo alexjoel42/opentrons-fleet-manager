@@ -7,9 +7,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import HardwareDisplay from '../components/organisms/HardwareDisplay';
 import RunHistoryList from '../components/organisms/RunHistoryList';
-import TroubleshootingPanel from '../components/organisms/TroubleshootingPanel';
 import StatusBadge from '../components/atoms/StatusBadge';
-import { ArrowLeft, RefreshCw, Download, Wrench } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Download, FileDown } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import JSZip from 'jszip';
 import { createPageUrl } from '@/utils';
 
 export default function RobotDetails() {
@@ -19,10 +20,8 @@ export default function RobotDetails() {
   const [hardware, setHardware] = useState(null);
   const [runs, setRuns] = useState([]);
   const [errorContexts, setErrorContexts] = useState({});
-  const [troubleshootingReport, setTroubleshootingReport] = useState(null);
   const [loadingHardware, setLoadingHardware] = useState(false);
   const [loadingRuns, setLoadingRuns] = useState(false);
-  const [loadingTroubleshooting, setLoadingTroubleshooting] = useState(false);
 
   // Fetch robot details
   const { data: robot, isLoading } = useQuery({
@@ -56,26 +55,6 @@ export default function RobotDetails() {
         ip_address: robot.ip_address
       });
       setRuns(runsData.runs || []);
-
-      // Fetch error contexts for failed runs
-      const errorRuns = (runsData.runs || []).filter(run => run.status === 'error');
-      const contexts = {};
-      
-      await Promise.all(
-        errorRuns.map(async (run) => {
-          try {
-            const { data: detailsData } = await base44.functions.invoke('fetchRunDetails', {
-              ip_address: robot.ip_address,
-              run_id: run.id
-            });
-            contexts[run.id] = detailsData.errorContext;
-          } catch (error) {
-            console.error(`Failed to fetch details for run ${run.id}`);
-          }
-        })
-      );
-      
-      setErrorContexts(contexts);
     } catch (error) {
       toast.error('Failed to fetch run history');
     } finally {
@@ -83,23 +62,68 @@ export default function RobotDetails() {
     }
   };
 
-  // Generate troubleshooting report
-  const generateTroubleshooting = async (run) => {
+  // Download hardware report as image
+  const downloadHardwareReport = async () => {
     try {
-      setLoadingTroubleshooting(true);
-      toast.info('Analyzing error and generating troubleshooting steps...');
-      const { data } = await base44.functions.invoke('generateTroubleshootingReport', {
+      toast.info('Generating hardware report...');
+      const element = document.getElementById('hardware-display');
+      if (!element) {
+        toast.error('Hardware data not loaded');
+        return;
+      }
+
+      const canvas = await html2canvas(element, {
+        backgroundColor: '#16212D',
+        scale: 2
+      });
+      
+      canvas.toBlob((blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `hardware-report-${robot.name}-${new Date().toISOString().split('T')[0]}.png`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+        toast.success('Hardware report downloaded');
+      });
+    } catch (error) {
+      toast.error('Failed to generate hardware report');
+    }
+  };
+
+  // Generate troubleshooting ZIP
+  const generateTroubleshootingZip = async (run) => {
+    try {
+      toast.info('Generating troubleshooting package...');
+      const { data } = await base44.functions.invoke('generateTroubleshootingZip', {
         ip_address: robot.ip_address,
         run_id: run.id,
         robot_name: robot.name
       });
 
-      setTroubleshootingReport(data);
-      toast.success('Troubleshooting analysis complete');
+      // Create ZIP file
+      const zip = new JSZip();
+      zip.file('run_log.txt', data.runLog);
+      zip.file('protocol.py', data.protocolFile);
+      zip.file('hardware_report.txt', data.hardwareReport);
+      zip.file('robot_logs.txt', data.robotLogs);
+
+      // Generate and download ZIP
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = window.URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `troubleshooting-${robot.name}-${run.id.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+
+      toast.success('Troubleshooting package downloaded');
     } catch (error) {
-      toast.error('Failed to generate troubleshooting report');
-    } finally {
-      setLoadingTroubleshooting(false);
+      toast.error('Failed to generate troubleshooting package');
     }
   };
 
@@ -162,28 +186,36 @@ export default function RobotDetails() {
           <TabsList className="bg-[#1F2B38] border-[#2A3847]">
             <TabsTrigger value="hardware" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">Hardware</TabsTrigger>
             <TabsTrigger value="runs" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">Run History</TabsTrigger>
-            <TabsTrigger value="troubleshooting" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">
-              <Wrench className="w-4 h-4 mr-2" />
-              Troubleshooting
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="hardware">
             <Card className="bg-[#1F2B38] border-[#2A3847]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-gray-300">Hardware Configuration</CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="bg-[#1F2B38] border-[#2A3847] text-gray-300 hover:bg-[#2A3847]"
-                  onClick={fetchHardware}
-                  disabled={loadingHardware}
-                >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${loadingHardware ? 'animate-spin' : ''}`} />
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-[#1F2B38] border-[#2A3847] text-gray-300 hover:bg-[#2A3847]"
+                    onClick={downloadHardwareReport}
+                    disabled={!hardware}
+                  >
+                    <FileDown className="w-4 h-4 mr-2" />
+                    Download Report
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-[#1F2B38] border-[#2A3847] text-gray-300 hover:bg-[#2A3847]"
+                    onClick={fetchHardware}
+                    disabled={loadingHardware}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${loadingHardware ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent id="hardware-display">
                 <HardwareDisplay hardware={hardware} loading={loadingHardware} />
               </CardContent>
             </Card>
@@ -212,41 +244,12 @@ export default function RobotDetails() {
                 <RunHistoryList
                   runs={runs}
                   errorContexts={errorContexts}
-                  onGenerateReport={generateTroubleshooting}
+                  onGenerateReport={generateTroubleshootingZip}
                   loading={loadingRuns}
                 />
               </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="troubleshooting">
-            <Card className="bg-[#1F2B38] border-[#2A3847]">
-              <CardHeader>
-                <CardTitle className="text-gray-300">AI-Powered Troubleshooting</CardTitle>
-                <p className="text-sm text-gray-400 mt-2">
-                  Click "Get Resolution Info" on a failed run to generate detailed troubleshooting guidance
-                </p>
-              </CardHeader>
-              <CardContent>
-                {loadingTroubleshooting ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <RefreshCw className="w-8 h-8 animate-spin text-[#006EFF] mb-3" />
-                    <p className="text-gray-400">Analyzing error and generating recommendations...</p>
-                  </div>
-                ) : troubleshootingReport ? (
-                  <TroubleshootingPanel report={troubleshootingReport} />
-                ) : (
-                  <div className="text-center py-12">
-                    <Wrench className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-                    <p className="text-gray-400">No troubleshooting report generated yet</p>
-                    <p className="text-sm text-gray-500 mt-2">
-                      Go to Run History and click "Get Resolution Info" on a failed run
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </Card>
+              </TabsContent>
           </Tabs>
       </div>
     </div>
