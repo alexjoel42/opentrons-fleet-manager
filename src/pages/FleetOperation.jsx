@@ -51,7 +51,7 @@ export default function FleetOperation() {
 
   // Add robot mutation
   const addRobotMutation = useMutation({
-    mutationFn: async ({ ipAddress, boardName }) => {
+    mutationFn: async ({ ipAddress }) => {
       const { data: robotInfo } = await base44.functions.invoke('fetchRobotInfo', { 
         ip_address: ipAddress 
       });
@@ -61,7 +61,7 @@ export default function FleetOperation() {
         name: robotInfo.name,
         serial_number: robotInfo.serial_number,
         status: robotInfo.status,
-        board_name: boardName,
+        board_name: robotInfo.name,
         last_health_check: new Date().toISOString()
       });
     },
@@ -109,8 +109,8 @@ export default function FleetOperation() {
     }
   });
 
-  const handleAddRobot = (ipAddress, boardName) => {
-    addRobotMutation.mutate({ ipAddress, boardName });
+  const handleAddRobot = (ipAddress) => {
+    addRobotMutation.mutate({ ipAddress });
   };
 
   const handleDeleteRobot = (robotId) => {
