@@ -49,11 +49,13 @@
  */
 import FleetOperation from './pages/FleetOperation';
 import RobotDetails from './pages/RobotDetails';
+import Instructions from './pages/Instructions';
 
 
 export const PAGES = {
     "FleetOperation": FleetOperation,
     "RobotDetails": RobotDetails,
+    "Instructions": Instructions,
 }
 
 export const pagesConfig = {
