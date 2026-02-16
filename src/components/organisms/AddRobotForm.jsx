@@ -7,12 +7,11 @@ import { Plus, Loader2 } from 'lucide-react';
 
 export default function AddRobotForm({ onAdd, loading }) {
   const [ipAddress, setIpAddress] = useState('');
-  const [boardName, setBoardName] = useState('Main Lab');
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (ipAddress) {
-      onAdd(ipAddress, boardName);
+      onAdd(ipAddress);
       setIpAddress('');
     }
   };
@@ -31,17 +30,6 @@ export default function AddRobotForm({ onAdd, loading }) {
               value={ipAddress}
               onChange={(e) => setIpAddress(e.target.value)}
               placeholder="192.168.1.100"
-              disabled={loading}
-              className="bg-[#16212D] border-[#2A3847] text-white placeholder:text-gray-500"
-            />
-          </div>
-          <div>
-            <Label htmlFor="boardName" className="text-gray-300">Board Name</Label>
-            <Input
-              id="boardName"
-              value={boardName}
-              onChange={(e) => setBoardName(e.target.value)}
-              placeholder="Main Lab"
               disabled={loading}
               className="bg-[#16212D] border-[#2A3847] text-white placeholder:text-gray-500"
             />
