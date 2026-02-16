@@ -156,21 +156,6 @@ export default function FleetOperation() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <FleetHealthScore 
-            score={metrics.healthScore}
-            totalRobots={metrics.totalRobots}
-            onlineRobots={metrics.onlineRobots}
-            errorRobots={metrics.activeErrors}
-          />
-          <FleetStatusBreakdown robots={robots} />
-          <ActionableInsights />
-        </div>
-
-        <FleetMetrics metrics={metrics} dark={true} />
-
-        <FleetCharts />
-
         {addingRobot && (
           <div className="mb-6">
             <AddRobotForm
@@ -208,7 +193,7 @@ export default function FleetOperation() {
           </Card>
         )}
 
-        <Card className="bg-gray-900 border-gray-700">
+        <Card className="bg-gray-900 border-gray-700 mb-6">
           <CardHeader>
             <CardTitle className="text-gray-300">Robot Fleet</CardTitle>
           </CardHeader>
@@ -220,6 +205,21 @@ export default function FleetOperation() {
             />
           </CardContent>
         </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <FleetHealthScore 
+            score={metrics.healthScore}
+            totalRobots={metrics.totalRobots}
+            onlineRobots={metrics.onlineRobots}
+            errorRobots={metrics.activeErrors}
+          />
+          <FleetStatusBreakdown robots={robots} />
+          <ActionableInsights />
+        </div>
+
+        <FleetMetrics metrics={metrics} dark={true} />
+
+        <FleetCharts />
       </div>
     </div>
   );
