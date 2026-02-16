@@ -18,7 +18,7 @@ export default function AddRobotForm({ onAdd, loading }) {
   };
 
   return (
-    <Card className="bg-gray-900 border-gray-700">
+    <Card className="bg-[#1F2B38] border-[#2A3847]">
       <CardHeader>
         <CardTitle className="text-lg text-gray-300">Add New Robot</CardTitle>
       </CardHeader>
@@ -32,7 +32,7 @@ export default function AddRobotForm({ onAdd, loading }) {
               onChange={(e) => setIpAddress(e.target.value)}
               placeholder="192.168.1.100"
               disabled={loading}
-              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+              className="bg-[#16212D] border-[#2A3847] text-white placeholder:text-gray-500"
             />
           </div>
           <div>
@@ -43,10 +43,10 @@ export default function AddRobotForm({ onAdd, loading }) {
               onChange={(e) => setBoardName(e.target.value)}
               placeholder="Main Lab"
               disabled={loading}
-              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+              className="bg-[#16212D] border-[#2A3847] text-white placeholder:text-gray-500"
             />
           </div>
-          <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white" disabled={loading || !ipAddress}>
+          <Button type="submit" className="w-full bg-[#006EFF] hover:bg-[#0055CC] text-white" disabled={loading || !ipAddress}>
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />

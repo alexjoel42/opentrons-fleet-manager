@@ -130,7 +130,7 @@ export default function FleetOperation() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6">
+    <div className="min-h-screen bg-[#16212D] p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -140,7 +140,7 @@ export default function FleetOperation() {
           <div className="flex gap-3">
             <Button
               variant="outline"
-              className="bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
+              className="bg-[#1F2B38] border-[#2A3847] text-gray-300 hover:bg-[#2A3847]"
               onClick={() => healthCheckMutation.mutate()}
               disabled={healthCheckMutation.isPending || robots.length === 0}
             >
@@ -148,7 +148,7 @@ export default function FleetOperation() {
               Health Check
             </Button>
             <Button 
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-[#006EFF] hover:bg-[#0055CC] text-white"
               onClick={() => setAddingRobot(!addingRobot)}
             >
               {addingRobot ? 'Cancel' : 'Add Robot'}
@@ -176,13 +176,13 @@ export default function FleetOperation() {
             <CardContent>
               <div className="space-y-2">
                 {robots.filter(r => r.status === 'error').map(robot => (
-                  <div key={robot.id} className="flex items-center justify-between bg-gray-900 p-3 rounded border border-gray-800">
+                  <div key={robot.id} className="flex items-center justify-between bg-[#1F2B38] p-3 rounded border border-[#2A3847]">
                     <div>
                       <p className="font-medium text-white">{robot.name}</p>
                       <p className="text-sm text-gray-400">{robot.ip_address}</p>
                     </div>
                     <Link to={createPageUrl('RobotDetails') + `?id=${robot.id}`}>
-                      <Button size="sm" variant="outline" className="bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700">
+                      <Button size="sm" variant="outline" className="bg-[#1F2B38] border-[#2A3847] text-gray-300 hover:bg-[#2A3847]">
                         View Details
                       </Button>
                     </Link>
@@ -193,7 +193,7 @@ export default function FleetOperation() {
           </Card>
         )}
 
-        <Card className="bg-gray-900 border-gray-700 mb-6">
+        <Card className="bg-[#1F2B38] border-[#2A3847] mb-6">
           <CardHeader>
             <CardTitle className="text-gray-300">Robot Fleet</CardTitle>
           </CardHeader>

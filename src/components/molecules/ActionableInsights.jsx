@@ -20,7 +20,7 @@ export default function ActionableInsights({ insights = [] }) {
   const displayInsights = insights.length > 0 ? insights : defaultInsights;
 
   return (
-    <Card className="bg-gray-900 border-gray-700 h-full">
+    <Card className="bg-[#1F2B38] border-[#2A3847] h-full">
       <CardHeader>
         <CardTitle className="text-gray-300 text-sm">Actionable Insights</CardTitle>
       </CardHeader>

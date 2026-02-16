@@ -139,12 +139,12 @@ export default function RobotDetails() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6">
+    <div className="min-h-screen bg-[#16212D] p-6">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <Button
             variant="ghost"
-            className="mb-4 text-gray-300 hover:bg-gray-800 hover:text-white"
+            className="mb-4 text-gray-300 hover:bg-[#1F2B38] hover:text-white"
             onClick={() => window.location.href = createPageUrl('FleetOperation')}
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -164,19 +164,19 @@ export default function RobotDetails() {
         </div>
 
         <Tabs defaultValue="hardware" className="space-y-6">
-          <TabsList className="bg-gray-900 border-gray-800">
-            <TabsTrigger value="hardware" className="data-[state=active]:bg-gray-800 data-[state=active]:text-white text-gray-400">Hardware</TabsTrigger>
-            <TabsTrigger value="runs" className="data-[state=active]:bg-gray-800 data-[state=active]:text-white text-gray-400">Run History</TabsTrigger>
+          <TabsList className="bg-[#1F2B38] border-[#2A3847]">
+            <TabsTrigger value="hardware" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">Hardware</TabsTrigger>
+            <TabsTrigger value="runs" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">Run History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="hardware">
-            <Card className="bg-gray-900 border-gray-700">
+            <Card className="bg-[#1F2B38] border-[#2A3847]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-gray-300">Hardware Configuration</CardTitle>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
+                  className="bg-[#1F2B38] border-[#2A3847] text-gray-300 hover:bg-[#2A3847]"
                   onClick={fetchHardware}
                   disabled={loadingHardware}
                 >
@@ -191,11 +191,11 @@ export default function RobotDetails() {
           </TabsContent>
 
           <TabsContent value="runs">
-            <Card className="bg-gray-900 border-gray-700">
+            <Card className="bg-[#1F2B38] border-[#2A3847]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-gray-300">Run History</CardTitle>
                 <Button
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className="bg-[#006EFF] hover:bg-[#0055CC] text-white"
                   onClick={fetchRunHistory}
                   disabled={loadingRuns}
                 >

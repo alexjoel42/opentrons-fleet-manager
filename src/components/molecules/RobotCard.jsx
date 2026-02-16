@@ -6,7 +6,7 @@ import { Trash2, ExternalLink } from 'lucide-react';
 
 export default function RobotCard({ robot, onDelete, onView }) {
   return (
-    <Card className="bg-gray-800 border-gray-700 hover:bg-gray-750 transition-all">
+    <Card className="bg-[#1F2B38] border-[#2A3847] hover:bg-[#253442] transition-all">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div>
@@ -21,7 +21,7 @@ export default function RobotCard({ robot, onDelete, onView }) {
           <Button 
             variant="outline" 
             size="sm" 
-            className="flex-1 bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600"
+            className="flex-1 bg-[#2A3847] border-[#3A4857] text-gray-300 hover:bg-[#3A4857]"
             onClick={() => onView(robot)}
           >
             <ExternalLink className="w-4 h-4 mr-2" />

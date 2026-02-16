@@ -170,9 +170,9 @@ Consider implementing:
 `;
 
   return (
-    <div className="min-h-screen bg-gray-950 p-6">
+    <div className="min-h-screen bg-[#16212D] p-6">
       <div className="max-w-5xl mx-auto">
-        <Card className="bg-gray-900 border-gray-700">
+        <Card className="bg-[#1F2B38] border-[#2A3847]">
           <CardHeader>
             <CardTitle className="text-2xl text-white">Setup Instructions</CardTitle>
           </CardHeader>

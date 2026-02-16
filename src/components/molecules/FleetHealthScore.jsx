@@ -8,7 +8,7 @@ export default function FleetHealthScore({ score, totalRobots, onlineRobots, err
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
   return (
-    <Card className="bg-gradient-to-br from-gray-900 to-gray-800 border-gray-700">
+    <Card className="bg-gradient-to-br from-[#1F2B38] to-[#16212D] border-[#2A3847]">
       <CardHeader>
         <CardTitle className="text-gray-300 text-sm">Fleet Health Score</CardTitle>
       </CardHeader>
@@ -22,7 +22,7 @@ export default function FleetHealthScore({ score, totalRobots, onlineRobots, err
               stroke="currentColor"
               strokeWidth="12"
               fill="transparent"
-              className="text-gray-700"
+              className="text-[#2A3847]"
             />
             <circle
               cx="96"
@@ -34,7 +34,7 @@ export default function FleetHealthScore({ score, totalRobots, onlineRobots, err
               strokeDasharray={circumference}
               strokeDashoffset={strokeDashoffset}
               className={`${
-                score >= 80 ? 'text-green-500' : score >= 50 ? 'text-yellow-500' : 'text-red-500'
+                score >= 80 ? 'text-[#00D374]' : score >= 50 ? 'text-yellow-500' : 'text-red-500'
               } transition-all duration-1000`}
               strokeLinecap="round"
             />
@@ -48,7 +48,7 @@ export default function FleetHealthScore({ score, totalRobots, onlineRobots, err
       <CardContent className="pt-0">
         <div className="grid grid-cols-3 gap-2 text-center">
           <div>
-            <div className="text-2xl font-bold text-green-400">{onlineRobots}</div>
+            <div className="text-2xl font-bold text-[#00D374]">{onlineRobots}</div>
             <div className="text-xs text-gray-400">Online</div>
           </div>
           <div>

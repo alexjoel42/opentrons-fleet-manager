@@ -11,14 +11,14 @@ export default function FleetStatusBreakdown({ robots = [] }) {
   };
 
   const statusConfig = [
-    { label: 'Available', count: statusCounts.available, color: 'text-green-400', bgColor: 'bg-green-500/10' },
-    { label: 'Running', count: statusCounts.running, color: 'text-blue-400', bgColor: 'bg-blue-500/10' },
+    { label: 'Available', count: statusCounts.available, color: 'text-[#00D374]', bgColor: 'bg-[#00D374]/10' },
+    { label: 'Running', count: statusCounts.running, color: 'text-[#006EFF]', bgColor: 'bg-[#006EFF]/10' },
     { label: 'Not Connected', count: statusCounts.offline, color: 'text-gray-400', bgColor: 'bg-gray-500/10' },
     { label: 'Issues', count: statusCounts.error, color: 'text-red-400', bgColor: 'bg-red-500/10' }
   ];
 
   return (
-    <Card className="bg-gray-900 border-gray-700">
+    <Card className="bg-[#1F2B38] border-[#2A3847]">
       <CardHeader>
         <CardTitle className="text-gray-300 text-sm">Instrument Live Status</CardTitle>
       </CardHeader>
