@@ -7,8 +7,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import HardwareDisplay from '../components/organisms/HardwareDisplay';
 import RunHistoryList from '../components/organisms/RunHistoryList';
+import TroubleshootingPanel from '../components/organisms/TroubleshootingPanel';
 import StatusBadge from '../components/atoms/StatusBadge';
-import { ArrowLeft, RefreshCw, Download } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Download, Wrench } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 
 export default function RobotDetails() {
@@ -18,8 +19,10 @@ export default function RobotDetails() {
   const [hardware, setHardware] = useState(null);
   const [runs, setRuns] = useState([]);
   const [errorContexts, setErrorContexts] = useState({});
+  const [troubleshootingReport, setTroubleshootingReport] = useState(null);
   const [loadingHardware, setLoadingHardware] = useState(false);
   const [loadingRuns, setLoadingRuns] = useState(false);
+  const [loadingTroubleshooting, setLoadingTroubleshooting] = useState(false);
 
   // Fetch robot details
   const { data: robot, isLoading } = useQuery({
@@ -80,31 +83,23 @@ export default function RobotDetails() {
     }
   };
 
-  // Generate error report
-  const generateReport = async (run) => {
+  // Generate troubleshooting report
+  const generateTroubleshooting = async (run) => {
     try {
-      toast.info('Generating error report...');
-      const { data } = await base44.functions.invoke('generateErrorReport', {
+      setLoadingTroubleshooting(true);
+      toast.info('Analyzing error and generating troubleshooting steps...');
+      const { data } = await base44.functions.invoke('generateTroubleshootingReport', {
         ip_address: robot.ip_address,
         run_id: run.id,
         robot_name: robot.name
       });
 
-      // Create and download report
-      const reportContent = JSON.stringify(data.report, null, 2);
-      const blob = new Blob([reportContent], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `error-report-${robot.name}-${run.id.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      a.remove();
-
-      toast.success('Error report downloaded');
+      setTroubleshootingReport(data);
+      toast.success('Troubleshooting analysis complete');
     } catch (error) {
-      toast.error('Failed to generate error report');
+      toast.error('Failed to generate troubleshooting report');
+    } finally {
+      setLoadingTroubleshooting(false);
     }
   };
 
@@ -167,6 +162,10 @@ export default function RobotDetails() {
           <TabsList className="bg-[#1F2B38] border-[#2A3847]">
             <TabsTrigger value="hardware" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">Hardware</TabsTrigger>
             <TabsTrigger value="runs" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">Run History</TabsTrigger>
+            <TabsTrigger value="troubleshooting" className="data-[state=active]:bg-[#006EFF] data-[state=active]:text-white text-gray-400">
+              <Wrench className="w-4 h-4 mr-2" />
+              Troubleshooting
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="hardware">
@@ -213,13 +212,42 @@ export default function RobotDetails() {
                 <RunHistoryList
                   runs={runs}
                   errorContexts={errorContexts}
-                  onGenerateReport={generateReport}
+                  onGenerateReport={generateTroubleshooting}
                   loading={loadingRuns}
                 />
               </CardContent>
             </Card>
           </TabsContent>
-        </Tabs>
+
+          <TabsContent value="troubleshooting">
+            <Card className="bg-[#1F2B38] border-[#2A3847]">
+              <CardHeader>
+                <CardTitle className="text-gray-300">AI-Powered Troubleshooting</CardTitle>
+                <p className="text-sm text-gray-400 mt-2">
+                  Click "Get Resolution Info" on a failed run to generate detailed troubleshooting guidance
+                </p>
+              </CardHeader>
+              <CardContent>
+                {loadingTroubleshooting ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <RefreshCw className="w-8 h-8 animate-spin text-[#006EFF] mb-3" />
+                    <p className="text-gray-400">Analyzing error and generating recommendations...</p>
+                  </div>
+                ) : troubleshootingReport ? (
+                  <TroubleshootingPanel report={troubleshootingReport} />
+                ) : (
+                  <div className="text-center py-12">
+                    <Wrench className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                    <p className="text-gray-400">No troubleshooting report generated yet</p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Go to Run History and click "Get Resolution Info" on a failed run
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          </Tabs>
       </div>
     </div>
   );
