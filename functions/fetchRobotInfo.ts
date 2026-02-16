@@ -4,12 +4,18 @@ Deno.serve(async (req) => {
     try {
         const base44 = createClientFromRequest(req);
         const user = await base44.auth.me();
-        
+
         if (!user) {
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const { ip_address } = await req.json();
+
+        // Check if this is a demo robot
+        if (ip_address === '192.168.1.99') {
+            const { data: demoInfo } = await base44.functions.invoke('fetchDemoRobotInfo');
+            return Response.json(demoInfo);
+        }
 
         if (!ip_address) {
             return Response.json({ error: 'IP address is required' }, { status: 400 });

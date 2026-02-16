@@ -75,6 +75,24 @@ export default function FleetOperation() {
     }
   });
 
+  // Add demo robot mutation
+  const addDemoRobotMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await base44.functions.invoke('addDemoRobot');
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to add demo robot');
+      }
+      return data.robot;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['robots'] });
+      toast.success('Demo robot added successfully');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
+
   // Delete robot mutation
   const deleteRobotMutation = useMutation({
     mutationFn: (robotId) => base44.entities.Robot.delete(robotId),
@@ -146,6 +164,14 @@ export default function FleetOperation() {
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${healthCheckMutation.isPending ? 'animate-spin' : ''}`} />
               Health Check
+            </Button>
+            <Button
+              variant="outline"
+              className="bg-purple-900/30 border-purple-700 text-purple-300 hover:bg-purple-900/50"
+              onClick={() => addDemoRobotMutation.mutate()}
+              disabled={addDemoRobotMutation.isPending}
+            >
+              Add Demo Robot
             </Button>
             <Button 
               className="bg-[#006EFF] hover:bg-[#0055CC] text-white"
