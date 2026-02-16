@@ -3,26 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function FleetCharts({ runData = [], successRateData = [] }) {
-  // Default mock data if no data provided
-  const defaultRunData = [
-    { name: 'Mon', runs: 12, errors: 2 },
-    { name: 'Tue', runs: 19, errors: 1 },
-    { name: 'Wed', runs: 15, errors: 3 },
-    { name: 'Thu', runs: 22, errors: 1 },
-    { name: 'Fri', runs: 18, errors: 2 },
-    { name: 'Sat', runs: 8, errors: 0 },
-    { name: 'Sun', runs: 5, errors: 0 }
-  ];
+  // Only display if data is provided
+  const hasData = runData.length > 0 || successRateData.length > 0;
+  
+  if (!hasData) {
+    return null;
+  }
 
-  const defaultSuccessRate = [
-    { name: 'Week 1', rate: 92 },
-    { name: 'Week 2', rate: 88 },
-    { name: 'Week 3', rate: 95 },
-    { name: 'Week 4', rate: 91 }
-  ];
-
-  const displayRunData = runData.length > 0 ? runData : defaultRunData;
-  const displaySuccessRate = successRateData.length > 0 ? successRateData : defaultSuccessRate;
+  const displayRunData = runData;
+  const displaySuccessRate = successRateData;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

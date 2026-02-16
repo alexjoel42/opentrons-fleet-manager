@@ -23,41 +23,42 @@ Deno.serve(async (req) => {
                     id: 'demo-right-pipette'
                 }
             },
-            gripper: {
-                model: 'gripper_v1',
-                serialNumber: 'GRP2020092301',
-                id: 'demo-gripper'
-            },
             modules: [
                 {
-                    moduleType: 'temperatureModuleType',
-                    model: 'temperatureModuleV2',
-                    serialNumber: 'TEM2020092301',
-                    status: 'ok',
+                    moduleType: 'Plate Reader',
+                    moduleModel: 'absorbanceReaderV1',
+                    serialNumber: 'ABR2024010101',
+                    status: 'idle',
+                    id: 'demo-plate-reader'
+                },
+                {
+                    moduleType: 'Heater-Shaker',
+                    moduleModel: 'heaterShakerModuleV1',
+                    serialNumber: 'HS2024010102',
+                    status: 'idle',
+                    id: 'demo-heater-shaker'
+                },
+                {
+                    moduleType: 'Temperature Module',
+                    moduleModel: 'temperatureModuleV2',
+                    serialNumber: 'TEM2024010103',
+                    status: 'idle',
                     id: 'demo-temp-module'
                 },
                 {
-                    moduleType: 'magneticModuleType',
-                    model: 'magneticModuleV2',
-                    serialNumber: 'MAG2020092302',
-                    status: 'ok',
-                    id: 'demo-mag-module'
-                },
-                {
-                    moduleType: 'heaterShakerModuleType',
-                    model: 'heaterShakerModuleV1',
-                    serialNumber: 'HS2020092303',
-                    status: 'ok',
-                    id: 'demo-hs-module'
+                    moduleType: 'Thermocycler',
+                    moduleModel: 'thermocyclerModuleV2',
+                    serialNumber: 'TC2024010104',
+                    status: 'idle',
+                    id: 'demo-thermocycler'
                 }
             ],
             subsystems: {
-                gantry_x: { ok: true, current_fw_version: 10 },
-                gantry_y: { ok: true, current_fw_version: 10 },
-                head: { ok: true, current_fw_version: 10 },
-                gripper: { ok: true, current_fw_version: 10 },
-                pipette_left: { ok: true, current_fw_version: 10 },
-                pipette_right: { ok: true, current_fw_version: 10 }
+                gantry_x: 'ok',
+                gantry_y: 'ok',
+                head: 'ok',
+                pipette_left: 'ok',
+                pipette_right: 'ok'
             }
         };
 

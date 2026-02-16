@@ -88,16 +88,19 @@ export default function HardwareDisplay({ hardware, loading }) {
           <Card>
             <CardContent className="p-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {Object.entries(hardware.subsystems).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                    <span className="text-sm font-medium">{key}</span>
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      value === 'ok' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {value}
-                    </span>
-                  </div>
-                ))}
+                {Object.entries(hardware.subsystems).map(([key, value]) => {
+                  const status = typeof value === 'object' ? (value.ok ? 'ok' : 'error') : value;
+                  return (
+                    <div key={key} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                      <span className="text-sm font-medium">{key}</span>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        status === 'ok' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {status}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

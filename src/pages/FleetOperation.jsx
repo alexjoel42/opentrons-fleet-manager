@@ -244,8 +244,6 @@ export default function FleetOperation() {
         </div>
 
         <FleetMetrics metrics={metrics} dark={true} />
-
-        <FleetCharts />
       </div>
     </div>
   );
