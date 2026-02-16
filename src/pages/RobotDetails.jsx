@@ -9,7 +9,7 @@ import HardwareDisplay from '../components/organisms/HardwareDisplay';
 import RunHistoryList from '../components/organisms/RunHistoryList';
 import StatusBadge from '../components/atoms/StatusBadge';
 import { ArrowLeft, RefreshCw, Download } from 'lucide-react';
-import { createPageUrl } from './utils';
+import { createPageUrl } from '@/utils';
 
 export default function RobotDetails() {
   const urlParams = new URLSearchParams(window.location.search);

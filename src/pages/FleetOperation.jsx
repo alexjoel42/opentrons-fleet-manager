@@ -8,8 +8,8 @@ import FleetMetrics from '../components/organisms/FleetMetrics';
 import RobotList from '../components/organisms/RobotList';
 import AddRobotForm from '../components/organisms/AddRobotForm';
 import { RefreshCw, AlertCircle } from 'lucide-react';
-import { createPageUrl } from './utils';
 import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 
 export default function FleetOperation() {
   const queryClient = useQueryClient();
