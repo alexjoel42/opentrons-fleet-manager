@@ -7,6 +7,10 @@ import { toast } from 'sonner';
 import FleetMetrics from '../components/organisms/FleetMetrics';
 import RobotList from '../components/organisms/RobotList';
 import AddRobotForm from '../components/organisms/AddRobotForm';
+import FleetHealthScore from '../components/molecules/FleetHealthScore';
+import FleetStatusBreakdown from '../components/molecules/FleetStatusBreakdown';
+import ActionableInsights from '../components/molecules/ActionableInsights';
+import FleetCharts from '../components/molecules/FleetCharts';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -30,12 +34,18 @@ export default function FleetOperation() {
     const offlineRobots = robots.filter(r => r.status === 'offline').length;
     const errorRobots = robots.filter(r => r.status === 'error').length;
 
+    // Calculate health score (0-100)
+    const healthScore = totalRobots > 0 
+      ? Math.round(((onlineRobots / totalRobots) * 80) + ((1 - (errorRobots / Math.max(totalRobots, 1))) * 20))
+      : 0;
+
     return {
       totalRobots,
       onlineRobots,
       offlineRobots,
       activeErrors: errorRobots,
-      successfulRuns: 0, // Will be calculated from polling
+      successfulRuns: 0,
+      healthScore,
     };
   }, [robots]);
 
@@ -120,29 +130,46 @@ export default function FleetOperation() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-950 p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Fleet Operation Dashboard</h1>
-            <p className="text-gray-600 mt-1">Monitor and manage your Opentrons robot fleet</p>
+            <h1 className="text-3xl font-bold text-white">Fleet Operation Dashboard</h1>
+            <p className="text-gray-400 mt-1">Monitor and manage your Opentrons robot fleet</p>
           </div>
           <div className="flex gap-3">
             <Button
               variant="outline"
+              className="bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
               onClick={() => healthCheckMutation.mutate()}
               disabled={healthCheckMutation.isPending || robots.length === 0}
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${healthCheckMutation.isPending ? 'animate-spin' : ''}`} />
               Health Check
             </Button>
-            <Button onClick={() => setAddingRobot(!addingRobot)}>
+            <Button 
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => setAddingRobot(!addingRobot)}
+            >
               {addingRobot ? 'Cancel' : 'Add Robot'}
             </Button>
           </div>
         </div>
 
-        <FleetMetrics metrics={metrics} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <FleetHealthScore 
+            score={metrics.healthScore}
+            totalRobots={metrics.totalRobots}
+            onlineRobots={metrics.onlineRobots}
+            errorRobots={metrics.activeErrors}
+          />
+          <FleetStatusBreakdown robots={robots} />
+          <ActionableInsights />
+        </div>
+
+        <FleetMetrics metrics={metrics} dark={true} />
+
+        <FleetCharts />
 
         {addingRobot && (
           <div className="mb-6">
@@ -154,9 +181,9 @@ export default function FleetOperation() {
         )}
 
         {robots.filter(r => r.status === 'error').length > 0 && (
-          <Card className="mb-6 border-red-200 bg-red-50">
+          <Card className="mb-6 border-red-900 bg-red-950/30">
             <CardHeader>
-              <CardTitle className="text-red-800 flex items-center gap-2">
+              <CardTitle className="text-red-400 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5" />
                 Active Errors Detected
               </CardTitle>
@@ -164,13 +191,13 @@ export default function FleetOperation() {
             <CardContent>
               <div className="space-y-2">
                 {robots.filter(r => r.status === 'error').map(robot => (
-                  <div key={robot.id} className="flex items-center justify-between bg-white p-3 rounded">
+                  <div key={robot.id} className="flex items-center justify-between bg-gray-900 p-3 rounded border border-gray-800">
                     <div>
-                      <p className="font-medium">{robot.name}</p>
-                      <p className="text-sm text-gray-600">{robot.ip_address}</p>
+                      <p className="font-medium text-white">{robot.name}</p>
+                      <p className="text-sm text-gray-400">{robot.ip_address}</p>
                     </div>
                     <Link to={createPageUrl('RobotDetails') + `?id=${robot.id}`}>
-                      <Button size="sm" variant="outline">
+                      <Button size="sm" variant="outline" className="bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700">
                         View Details
                       </Button>
                     </Link>
@@ -181,9 +208,9 @@ export default function FleetOperation() {
           </Card>
         )}
 
-        <Card>
+        <Card className="bg-gray-900 border-gray-700">
           <CardHeader>
-            <CardTitle>Robot Fleet</CardTitle>
+            <CardTitle className="text-gray-300">Robot Fleet</CardTitle>
           </CardHeader>
           <CardContent>
             <RobotList

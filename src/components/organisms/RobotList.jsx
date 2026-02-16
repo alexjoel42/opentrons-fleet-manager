@@ -4,7 +4,7 @@ import RobotCard from '../molecules/RobotCard';
 export default function RobotList({ robots, onDeleteRobot, onViewRobot }) {
   if (!robots || robots.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
+      <div className="text-center py-12 text-gray-400">
         <p>No robots added yet. Add a robot to get started.</p>
       </div>
     );
