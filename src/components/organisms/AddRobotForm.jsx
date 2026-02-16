@@ -18,33 +18,35 @@ export default function AddRobotForm({ onAdd, loading }) {
   };
 
   return (
-    <Card>
+    <Card className="bg-gray-900 border-gray-700">
       <CardHeader>
-        <CardTitle className="text-lg">Add New Robot</CardTitle>
+        <CardTitle className="text-lg text-gray-300">Add New Robot</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="ipAddress">Robot IP Address</Label>
+            <Label htmlFor="ipAddress" className="text-gray-300">Robot IP Address</Label>
             <Input
               id="ipAddress"
               value={ipAddress}
               onChange={(e) => setIpAddress(e.target.value)}
               placeholder="192.168.1.100"
               disabled={loading}
+              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
             />
           </div>
           <div>
-            <Label htmlFor="boardName">Board Name</Label>
+            <Label htmlFor="boardName" className="text-gray-300">Board Name</Label>
             <Input
               id="boardName"
               value={boardName}
               onChange={(e) => setBoardName(e.target.value)}
               placeholder="Main Lab"
               disabled={loading}
+              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
             />
           </div>
-          <Button type="submit" className="w-full" disabled={loading || !ipAddress}>
+          <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white" disabled={loading || !ipAddress}>
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
