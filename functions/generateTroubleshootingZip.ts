@@ -105,7 +105,7 @@ SUBSYSTEMS:
         // For real robots, fetch all data from API
         const headers = { 
             'Content-Type': 'application/json',
-            'Opentrons-Version': '3'
+            'Opentrons-Version': '*'
         };
         
         const [runRes, logsRes, protocolRes] = await Promise.all([

@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
             method: 'GET',
             headers: { 
                 'Content-Type': 'application/json',
-                'Opentrons-Version': '3'
+                'Opentrons-Version': '*'
             }
         });
 
