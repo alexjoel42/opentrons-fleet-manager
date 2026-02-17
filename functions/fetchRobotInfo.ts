@@ -21,25 +21,36 @@ Deno.serve(async (req) => {
             return Response.json({ error: 'IP address is required' }, { status: 400 });
         }
 
-        console.log(`[fetchRobotInfo] Attempting to connect to robot at ${ip_address}:31950`);
+        const url = `http://${ip_address}:31950/health`;
+        const headers = { 
+            'Content-Type': 'application/json',
+            'Opentrons-Version': '*'
+        };
+
+        console.log(`[fetchRobotInfo] ========================================`);
+        console.log(`[fetchRobotInfo] HTTP REQUEST`);
+        console.log(`[fetchRobotInfo] Method: GET`);
+        console.log(`[fetchRobotInfo] URL: ${url}`);
+        console.log(`[fetchRobotInfo] Headers:`, JSON.stringify(headers, null, 2));
+        console.log(`[fetchRobotInfo] ========================================`);
 
         // Fetch robot health information with timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
         try {
-            const healthResponse = await fetch(`http://${ip_address}:31950/health`, {
+            const healthResponse = await fetch(url, {
                 method: 'GET',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Opentrons-Version': '*'
-                },
+                headers,
                 signal: controller.signal
             });
 
             clearTimeout(timeoutId);
 
-            console.log(`[fetchRobotInfo] Response status: ${healthResponse.status}`);
+            console.log(`[fetchRobotInfo] ========================================`);
+            console.log(`[fetchRobotInfo] HTTP RESPONSE`);
+            console.log(`[fetchRobotInfo] Status: ${healthResponse.status} ${healthResponse.statusText}`);
+            console.log(`[fetchRobotInfo] ========================================`);
 
             if (!healthResponse.ok) {
                 console.error(`[fetchRobotInfo] Robot returned status ${healthResponse.status}`);
