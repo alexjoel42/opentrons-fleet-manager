@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
 
         // Fetch robot health information with timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
         try {
             const healthResponse = await fetch(url, {
