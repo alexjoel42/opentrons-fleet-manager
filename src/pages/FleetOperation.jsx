@@ -14,7 +14,7 @@ import FleetCharts from '../components/molecules/FleetCharts';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { fetchRobotHealth } from '@/components/lib/opentrons-api';
+import { fetchRobotHealth } from '../components/lib/opentrons-api';
 
 export default function FleetOperation() {
   const queryClient = useQueryClient();

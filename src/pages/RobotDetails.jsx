@@ -12,7 +12,7 @@ import { ArrowLeft, RefreshCw, Download, FileDown } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { createPageUrl } from '@/utils';
-import { fetchRobotHardware, fetchRobotRuns } from '@/components/lib/opentrons-api';
+import { fetchRobotHardware, fetchRobotRuns } from '../components/lib/opentrons-api';
 
 export default function RobotDetails() {
   const urlParams = new URLSearchParams(window.location.search);
