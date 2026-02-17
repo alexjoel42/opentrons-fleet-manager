@@ -72,7 +72,10 @@ export default function FleetOperation() {
       return true;
     },
     onError: (error) => {
-      toast.error(`Failed to add robot: ${error.message || 'Connection failed. Check the IP address and ensure the robot is online.'}`);
+      const errorData = error.response?.data;
+      const errorMessage = errorData?.details || errorData?.error || error.message || 'Connection failed';
+      toast.error(`Failed to add robot: ${errorMessage}`);
+      console.error('[FleetOperation] Add robot error:', error);
       return false;
     }
   });

@@ -21,32 +21,70 @@ Deno.serve(async (req) => {
             return Response.json({ error: 'IP address is required' }, { status: 400 });
         }
 
-        // Fetch robot health information
-        const healthResponse = await fetch(`http://${ip_address}:31950/health`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
+        console.log(`[fetchRobotInfo] Attempting to connect to robot at ${ip_address}:31950`);
 
-        if (!healthResponse.ok) {
+        // Fetch robot health information with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        try {
+            const healthResponse = await fetch(`http://${ip_address}:31950/health`, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            console.log(`[fetchRobotInfo] Response status: ${healthResponse.status}`);
+
+            if (!healthResponse.ok) {
+                console.error(`[fetchRobotInfo] Robot returned status ${healthResponse.status}`);
+                return Response.json({ 
+                    error: `Robot returned status ${healthResponse.status}`,
+                    status: 'offline',
+                    details: `HTTP ${healthResponse.status} from ${ip_address}:31950`
+                }, { status: 500 });
+            }
+
+            const healthData = await healthResponse.json();
+            console.log(`[fetchRobotInfo] Successfully connected to robot: ${healthData.name}`);
+
+            return Response.json({
+                name: healthData.name || 'Unknown Robot',
+                serial_number: healthData.robot_serial || healthData.api_version || 'N/A',
+                status: 'online',
+                health_data: healthData
+            });
+
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            
+            if (fetchError.name === 'AbortError') {
+                console.error(`[fetchRobotInfo] Connection timeout to ${ip_address}:31950`);
+                return Response.json({ 
+                    error: 'Connection timeout - robot did not respond within 10 seconds',
+                    status: 'offline',
+                    details: `Timeout connecting to ${ip_address}:31950`
+                }, { status: 500 });
+            }
+
+            console.error(`[fetchRobotInfo] Connection error to ${ip_address}:31950 - ${fetchError.message}`);
             return Response.json({ 
-                error: 'Failed to connect to robot',
-                status: 'offline' 
+                error: 'Cannot connect to robot',
+                status: 'offline',
+                details: fetchError.message.includes('Connection refused') 
+                    ? `Robot at ${ip_address} is not responding. Check if it's powered on and the IP is correct.`
+                    : `Network error: ${fetchError.message}`
             }, { status: 500 });
         }
 
-        const healthData = await healthResponse.json();
-
-        return Response.json({
-            name: healthData.name || 'Unknown Robot',
-            serial_number: healthData.robot_serial || healthData.api_version || 'N/A',
-            status: 'online',
-            health_data: healthData
-        });
-
     } catch (error) {
+        console.error(`[fetchRobotInfo] Unexpected error: ${error.message}`);
         return Response.json({ 
-            error: error.message,
-            status: 'offline'
+            error: 'Unexpected error',
+            status: 'offline',
+            details: error.message
         }, { status: 500 });
     }
 });
