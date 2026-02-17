@@ -21,36 +21,17 @@ Deno.serve(async (req) => {
             return Response.json({ error: 'IP address is required' }, { status: 400 });
         }
 
-        const url = `http://${ip_address}:31950/health`;
-        const headers = { 
-            'Content-Type': 'application/json',
-            'Opentrons-Version': '*'
-        };
-
-        console.log(`[fetchRobotInfo] ========================================`);
-        console.log(`[fetchRobotInfo] HTTP REQUEST`);
-        console.log(`[fetchRobotInfo] Method: GET`);
-        console.log(`[fetchRobotInfo] URL: ${url}`);
-        console.log(`[fetchRobotInfo] Headers:`, JSON.stringify(headers, null, 2));
-        console.log(`[fetchRobotInfo] ========================================`);
-
-        // Fetch robot health information with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        console.log(`[fetchRobotInfo] Starting fetch to ${ip_address}:31950/health`);
 
         try {
-            const healthResponse = await fetch(url, {
+            const healthResponse = await fetch(`http://${ip_address}:31950/health`, {
                 method: 'GET',
-                headers,
-                signal: controller.signal
+                headers: { 
+                    'Opentrons-Version': '*'
+                }
             });
 
-            clearTimeout(timeoutId);
-
-            console.log(`[fetchRobotInfo] ========================================`);
-            console.log(`[fetchRobotInfo] HTTP RESPONSE`);
-            console.log(`[fetchRobotInfo] Status: ${healthResponse.status} ${healthResponse.statusText}`);
-            console.log(`[fetchRobotInfo] ========================================`);
+            console.log(`[fetchRobotInfo] Got response: ${healthResponse.status}`);
 
             if (!healthResponse.ok) {
                 console.error(`[fetchRobotInfo] Robot returned status ${healthResponse.status}`);
