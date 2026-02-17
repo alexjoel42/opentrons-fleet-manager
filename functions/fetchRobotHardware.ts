@@ -24,13 +24,19 @@ Deno.serve(async (req) => {
         // Fetch instruments (pipettes)
         const instrumentsResponse = await fetch(`http://${ip_address}:31950/instruments`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Opentrons-Version': '3'
+            }
         });
 
         // Fetch modules
         const modulesResponse = await fetch(`http://${ip_address}:31950/modules`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Opentrons-Version': '3'
+            }
         });
 
         // Fetch subsystems for hardware status

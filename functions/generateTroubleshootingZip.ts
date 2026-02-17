@@ -103,10 +103,15 @@ SUBSYSTEMS:
         }
 
         // For real robots, fetch all data from API
+        const headers = { 
+            'Content-Type': 'application/json',
+            'Opentrons-Version': '3'
+        };
+        
         const [runRes, logsRes, protocolRes] = await Promise.all([
-            fetch(`http://${ip_address}:31950/runs/${run_id}`),
-            fetch(`http://${ip_address}:31950/runs/${run_id}/commands`),
-            fetch(`http://${ip_address}:31950/logs/serial.log`).catch(() => null)
+            fetch(`http://${ip_address}:31950/runs/${run_id}`, { headers }),
+            fetch(`http://${ip_address}:31950/runs/${run_id}/commands`, { headers }),
+            fetch(`http://${ip_address}:31950/logs/serial.log`, { headers }).catch(() => null)
         ]);
 
         const runData = runRes.ok ? await runRes.json() : null;
@@ -129,7 +134,7 @@ SUBSYSTEMS:
         // Get protocol file
         let protocolFile = 'Protocol file not available';
         if (runData?.data?.protocolId) {
-            const protRes = await fetch(`http://${ip_address}:31950/protocols/${runData.data.protocolId}`);
+            const protRes = await fetch(`http://${ip_address}:31950/protocols/${runData.data.protocolId}`, { headers });
             if (protRes.ok) {
                 const protData = await protRes.json();
                 protocolFile = protData.data?.files?.[0]?.content || 'Protocol content not available';
@@ -137,7 +142,7 @@ SUBSYSTEMS:
         }
 
         // Get hardware info
-        const hwRes = await fetch(`http://${ip_address}:31950/instruments`);
+        const hwRes = await fetch(`http://${ip_address}:31950/instruments`, { headers });
         const hardware = hwRes.ok ? await hwRes.json() : {};
         
         let hardwareReport = `OPENTRONS FLEX HARDWARE REPORT\n`;
