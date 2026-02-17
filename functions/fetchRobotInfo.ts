@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
             }
 
             const healthData = await healthResponse.json();
-            console.log(`[fetchRobotInfo] Successfully connected to robot: ${healthData.name}`);
+            console.log(`[fetchRobotInfo] Robot data:`, healthData);
 
             return Response.json({
                 name: healthData.name || 'Unknown Robot',
@@ -53,24 +53,11 @@ Deno.serve(async (req) => {
             });
 
         } catch (fetchError) {
-            clearTimeout(timeoutId);
-            
-            if (fetchError.name === 'AbortError') {
-                console.error(`[fetchRobotInfo] Connection timeout to ${ip_address}:31950`);
-                return Response.json({ 
-                    error: 'Connection timeout - robot did not respond within 10 seconds',
-                    status: 'offline',
-                    details: `Timeout connecting to ${ip_address}:31950`
-                }, { status: 500 });
-            }
-
-            console.error(`[fetchRobotInfo] Connection error to ${ip_address}:31950 - ${fetchError.message}`);
+            console.error(`[fetchRobotInfo] Error: ${fetchError.message}`);
             return Response.json({ 
                 error: 'Cannot connect to robot',
                 status: 'offline',
-                details: fetchError.message.includes('Connection refused') 
-                    ? `Robot at ${ip_address} is not responding. Check if it's powered on and the IP is correct.`
-                    : `Network error: ${fetchError.message}`
+                details: fetchError.message
             }, { status: 500 });
         }
 
