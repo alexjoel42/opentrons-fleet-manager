@@ -18,13 +18,19 @@ Deno.serve(async (req) => {
         // Fetch run details
         const runResponse = await fetch(`http://${ip_address}:31950/runs/${run_id}`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Opentrons-Version': '3'
+            }
         });
 
         // Fetch run commands for context
         const commandsResponse = await fetch(`http://${ip_address}:31950/runs/${run_id}/commands`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Opentrons-Version': '3'
+            }
         });
 
         const runData = runResponse.ok ? await runResponse.json() : {};

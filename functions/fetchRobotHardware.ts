@@ -36,7 +36,10 @@ Deno.serve(async (req) => {
         // Fetch subsystems for hardware status
         const subsystemsResponse = await fetch(`http://${ip_address}:31950/subsystems`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Opentrons-Version': '3'
+            }
         });
 
         const instruments = instrumentsResponse.ok ? await instrumentsResponse.json() : { left: null, right: null };

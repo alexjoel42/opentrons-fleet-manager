@@ -30,7 +30,10 @@ Deno.serve(async (req) => {
         try {
             const healthResponse = await fetch(`http://${ip_address}:31950/health`, {
                 method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Opentrons-Version': '3'
+                },
                 signal: controller.signal
             });
 

@@ -24,7 +24,10 @@ Deno.serve(async (req) => {
         // Fetch runs
         const runsResponse = await fetch(`http://${ip_address}:31950/runs`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'Opentrons-Version': '3'
+            }
         });
 
         if (!runsResponse.ok) {
