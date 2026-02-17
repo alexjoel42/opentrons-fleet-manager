@@ -14,6 +14,7 @@ import FleetCharts from '../components/molecules/FleetCharts';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { fetchRobotHealth } from '@/lib/opentrons-api';
 
 export default function FleetOperation() {
   const queryClient = useQueryClient();
@@ -52,13 +53,8 @@ export default function FleetOperation() {
   // Add robot mutation
   const addRobotMutation = useMutation({
     mutationFn: async ({ ipAddress }) => {
-      console.log(`[1/2] Fetching robot info from ${ipAddress}:31950/health`);
-      const { data: robotInfo } = await base44.functions.invoke('fetchRobotInfo', { 
-        ip_address: ipAddress 
-      });
-      console.log('[1/2] ✓ Robot responded:', robotInfo);
-
-      console.log('[2/2] Creating robot record in database');
+      const robotInfo = await fetchRobotHealth(ipAddress);
+      
       const robot = await base44.entities.Robot.create({
         ip_address: ipAddress,
         name: robotInfo.name,
@@ -67,7 +63,6 @@ export default function FleetOperation() {
         board_name: robotInfo.name,
         last_health_check: new Date().toISOString()
       });
-      console.log('[2/2] ✓ Robot created:', robot);
       
       return robot;
     },
@@ -78,10 +73,7 @@ export default function FleetOperation() {
       return true;
     },
     onError: (error) => {
-      const errorData = error.response?.data;
-      const errorMessage = errorData?.details || errorData?.error || error.message || 'Connection failed';
-      toast.error(`Failed to add robot: ${errorMessage}`);
-      console.error('[FleetOperation] Add robot error:', error);
+      toast.error(`Failed to add robot: ${error.message}`);
       return false;
     }
   });
@@ -121,13 +113,18 @@ export default function FleetOperation() {
     mutationFn: async () => {
       const results = await Promise.allSettled(
         robots.map(async (robot) => {
-          const { data } = await base44.functions.invoke('fetchRobotInfo', {
-            ip_address: robot.ip_address
-          });
-          return base44.entities.Robot.update(robot.id, {
-            status: data.status,
-            last_health_check: new Date().toISOString()
-          });
+          try {
+            const robotInfo = await fetchRobotHealth(robot.ip_address);
+            return base44.entities.Robot.update(robot.id, {
+              status: robotInfo.status,
+              last_health_check: new Date().toISOString()
+            });
+          } catch (error) {
+            return base44.entities.Robot.update(robot.id, {
+              status: 'offline',
+              last_health_check: new Date().toISOString()
+            });
+          }
         })
       );
       return results;

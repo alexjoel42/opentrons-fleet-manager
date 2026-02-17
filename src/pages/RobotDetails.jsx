@@ -12,6 +12,7 @@ import { ArrowLeft, RefreshCw, Download, FileDown } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { createPageUrl } from '@/utils';
+import { fetchRobotHardware, fetchRobotRuns } from '@/lib/opentrons-api';
 
 export default function RobotDetails() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -35,9 +36,7 @@ export default function RobotDetails() {
     if (!robot) return;
     setLoadingHardware(true);
     try {
-      const { data } = await base44.functions.invoke('fetchRobotHardware', {
-        ip_address: robot.ip_address
-      });
+      const data = await fetchRobotHardware(robot.ip_address);
       setHardware(data);
     } catch (error) {
       toast.error('Failed to fetch hardware information');
@@ -51,10 +50,8 @@ export default function RobotDetails() {
     if (!robot) return;
     setLoadingRuns(true);
     try {
-      const { data: runsData } = await base44.functions.invoke('fetchRunHistory', {
-        ip_address: robot.ip_address
-      });
-      setRuns(runsData.runs || []);
+      const { runs: runsData } = await fetchRobotRuns(robot.ip_address);
+      setRuns(runsData || []);
     } catch (error) {
       toast.error('Failed to fetch run history');
     } finally {
