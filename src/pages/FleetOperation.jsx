@@ -69,9 +69,11 @@ export default function FleetOperation() {
       queryClient.invalidateQueries({ queryKey: ['robots'] });
       toast.success('Robot added successfully');
       setAddingRobot(false);
+      return true;
     },
     onError: (error) => {
-      toast.error(`Failed to add robot: ${error.message}`);
+      toast.error(`Failed to add robot: ${error.message || 'Connection failed. Check the IP address and ensure the robot is online.'}`);
+      return false;
     }
   });
 
@@ -127,8 +129,13 @@ export default function FleetOperation() {
     }
   });
 
-  const handleAddRobot = (ipAddress) => {
-    addRobotMutation.mutate({ ipAddress });
+  const handleAddRobot = async (ipAddress) => {
+    return new Promise((resolve) => {
+      addRobotMutation.mutate({ ipAddress }, {
+        onSuccess: () => resolve(true),
+        onError: () => resolve(false)
+      });
+    });
   };
 
   const handleDeleteRobot = (robotId) => {

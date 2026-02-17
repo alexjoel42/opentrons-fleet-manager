@@ -8,11 +8,13 @@ import { Plus, Loader2 } from 'lucide-react';
 export default function AddRobotForm({ onAdd, loading }) {
   const [ipAddress, setIpAddress] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (ipAddress) {
-      onAdd(ipAddress);
-      setIpAddress('');
+      const success = await onAdd(ipAddress);
+      if (success) {
+        setIpAddress('');
+      }
     }
   };
 
