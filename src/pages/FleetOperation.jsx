@@ -52,11 +52,14 @@ export default function FleetOperation() {
   // Add robot mutation
   const addRobotMutation = useMutation({
     mutationFn: async ({ ipAddress }) => {
+      console.log(`[1/2] Fetching robot info from ${ipAddress}:31950/health`);
       const { data: robotInfo } = await base44.functions.invoke('fetchRobotInfo', { 
         ip_address: ipAddress 
       });
+      console.log('[1/2] ✓ Robot responded:', robotInfo);
 
-      return base44.entities.Robot.create({
+      console.log('[2/2] Creating robot record in database');
+      const robot = await base44.entities.Robot.create({
         ip_address: ipAddress,
         name: robotInfo.name,
         serial_number: robotInfo.serial_number,
@@ -64,6 +67,9 @@ export default function FleetOperation() {
         board_name: robotInfo.name,
         last_health_check: new Date().toISOString()
       });
+      console.log('[2/2] ✓ Robot created:', robot);
+      
+      return robot;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['robots'] });
