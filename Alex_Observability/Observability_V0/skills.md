@@ -7,6 +7,8 @@
 - **Backend:** FastAPI in `backend/`. Proxies requests to each robot by IP using `BaseRobot`; returns structured errors for unreachable/timeout. When `DATABASE_URL` is set: PostgreSQL (models in `models.py`, `db.py`), user auth (JWT), labs/robots/telemetry, and `POST /api/agent/telemetry` for the relay agent.
 - **Agent:** `agent/run_agent.py` runs in the lab; polls robots (HTTP or HTTPS per IP, e.g. 198.51.100.73 / 203.0.113.198 over HTTPS); POSTs to backend every 5s; retries with backoff.
 
+**Deployment (Render):** Postgres instance name **`observability-db`**; set `DATABASE_URL` from that service’s Internal connection string. **Production API base URL:** `https://opentrons-fleet-manager.onrender.com` (no trailing slash). Use it for **`VITE_API_URL`**, agent **`backend_url`** in `agent_config.json`, and interactive docs at `/docs`, health at `/health`.
+
 **Key choices:**
 - React Query per resource (health, modules, pipettes, logs) with query keys `['robot', ip, resource]`. Retries + refetchInterval for restarts; errors surfaced in UI.
 - Robot list: local mode from `GET /api/robots` (IP list); cloud mode from `GET /api/cloud/robots` (JWT, last_seen_at, staleness).

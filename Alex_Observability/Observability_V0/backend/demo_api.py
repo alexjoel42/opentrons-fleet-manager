@@ -723,6 +723,16 @@ def _resolve_main_protocol_file_name(ip: str, run: dict[str, Any]) -> str | None
 ALLOWED_HOSTNAMES = frozenset({"localhost"})
 
 
+@app.get("/")
+async def root():
+    """Landing when visiting the deployed base URL; API routes live under /api/*."""
+    return {
+        "service": "opentrons-fleet-manager-api",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.get("/health")
 @app.get("/api/health")
 async def health():
