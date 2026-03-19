@@ -29,7 +29,7 @@ from typing import Any, AsyncGenerator
 import httpx
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -526,10 +526,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+
+def _cors_allow_origins() -> list[str]:
+    """Comma-separated `CORS_ORIGINS` env (e.g. https://app.vercel.app); default `*` for dev."""
+    raw = (os.environ.get("CORS_ORIGINS") or "").strip()
+    if not raw:
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """JSON 500s for unexpected errors (HTTPException uses the default handler via MRO)."""
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 # Enable CORS so the React frontend (e.g. localhost:5174) can call this API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your frontend URL
+    allow_origins=_cors_allow_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

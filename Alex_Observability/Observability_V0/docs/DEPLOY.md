@@ -16,6 +16,7 @@ Deploy the FastAPI backend and React frontend to the cloud; run the relay agent 
 3. **Environment**:
    - `DATABASE_URL` – PostgreSQL connection string (required for cloud features).
    - `JWT_SECRET` – Secret for signing JWTs (set a strong value in production).
+   - `CORS_ORIGINS` – Comma-separated frontend origins (e.g. `https://your-app.vercel.app`). If unset, the API allows `*` (fine for dev; set this in production).
    - `SQL_ECHO` – Set to `1` or `true` to log SQL (optional, for debugging).
 
 4. **Run**: Use a production ASGI server (e.g. Uvicorn with workers) behind a reverse proxy (HTTPS). Example:
@@ -24,7 +25,7 @@ Deploy the FastAPI backend and React frontend to the cloud; run the relay agent 
    ```
    Or deploy as a Docker container / to Render, Railway, etc., with the same env vars.
 
-5. **CORS**: In production, set `allow_origins` in the FastAPI CORS middleware to your frontend origin(s) only.
+5. **CORS**: Set `CORS_ORIGINS` to your real frontend URL(s). Dependencies pin `bcrypt<4.1` so `passlib` password hashing works on signup (bcrypt 4.1+ breaks passlib 1.7.4); redeploy after pulling so signup/login work reliably.
 
 ## Frontend (React / Vite)
 
