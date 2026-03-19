@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/authContext';
 import { fetchCloudRobots, fetchLabs, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
+import { CloudAgentCredentials } from '../components/CloudAgentCredentials';
 import { CloudRobotPollTargets } from '../components/CloudRobotPollTargets';
 
 function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
@@ -85,6 +86,7 @@ export function CloudDashboard() {
         </p>
       </div>
 
+      {token ? <CloudAgentCredentials token={token} /> : null}
       {token ? <CloudRobotPollTargets token={token} /> : null}
 
       {labs && labs.length > 0 && (

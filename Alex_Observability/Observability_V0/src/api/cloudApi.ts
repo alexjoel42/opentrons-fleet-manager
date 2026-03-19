@@ -44,6 +44,38 @@ export async function fetchLabs(token: string): Promise<LabSummary[]> {
   return Array.isArray(data) ? data : [];
 }
 
+export async function createLab(token: string, name?: string): Promise<LabSummary> {
+  const res = await fetch(`${BASE}/api/labs`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ name: name?.trim() || 'My lab' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to create lab');
+  return data as LabSummary;
+}
+
+/** Plain agent token is returned once; store it in the relay agent config or BACKEND_URL + env. */
+export async function createLabAgentToken(
+  token: string,
+  labId: string,
+  options?: { label?: string },
+): Promise<{ token: string; lab_id: string }> {
+  const res = await fetch(`${BASE}/api/labs/${encodeURIComponent(labId)}/tokens`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ label: options?.label?.trim() || undefined }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to create agent token');
+  return data as { token: string; lab_id: string };
+}
+
+/** Public API base URL (from build); relay agent `backend_url` / `BACKEND_URL` should match this. */
+export function getCloudApiBaseUrl(): string {
+  return (import.meta.env.VITE_API_URL as string) || '';
+}
+
 export interface CloudRobotSummary {
   id: string;
   lab_id: string;

@@ -31,10 +31,13 @@ import httpx
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _log = logging.getLogger(__name__)
+
+# Max POST /api/labs/{id}/tokens per lab per UTC day (each successful call creates a LabAgentToken row).
+AGENT_TOKEN_GENERATIONS_PER_UTC_DAY = 4
 
 # Default port for Opentrons robot HTTP API (see docs.opentrons.com).
 DEFAULT_PORT = 31950
@@ -1099,11 +1102,31 @@ async def create_lab_token(
 ):
     """Generate a new agent token for the lab. Lab owner only. Plain token is returned once (not stored)."""
     import secrets
+    from datetime import datetime, timezone
+
     from agent_auth import hash_agent_token
     from models import Lab, LabAgentToken
+
     lab = await db.get(Lab, lab_id)
     if not lab or lab.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Lab not found")
+
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    count_stmt = (
+        select(func.count())
+        .select_from(LabAgentToken)
+        .where(LabAgentToken.lab_id == lab.id, LabAgentToken.created_at >= day_start)
+    )
+    n_today = int((await db.execute(count_stmt)).scalar_one() or 0)
+    if n_today >= AGENT_TOKEN_GENERATIONS_PER_UTC_DAY:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Daily limit reached: {AGENT_TOKEN_GENERATIONS_PER_UTC_DAY} agent token generations "
+                "per lab per day (UTC). Try again tomorrow."
+            ),
+        )
+
     token_plain = secrets.token_urlsafe(32)
     token_hash = hash_agent_token(token_plain)
     db.add(LabAgentToken(lab_id=lab.id, token_hash=token_hash, label=body.get("label")))

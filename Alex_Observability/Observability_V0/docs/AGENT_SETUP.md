@@ -6,7 +6,7 @@ The relay agent runs in your lab, polls Opentrons robot(s) on the local network,
 
 - Python 3.9+
 - Network access to the robot(s) on port 31950 (HTTP or HTTPS, depending on your setup)
-- A lab and agent token from the cloud app (sign up, create a lab, generate a token via the API or UI)
+- A lab and agent token from the cloud app: sign up, open the cloud dashboard, use **Relay agent credentials** (create a lab if needed, then **Generate new agent token**), or call `POST /api/labs/{lab_id}/tokens` with your user JWT. Token generation is limited to **4 per lab per UTC day**; older tokens you already created still work until you rotate them.
 
 ## Install
 
