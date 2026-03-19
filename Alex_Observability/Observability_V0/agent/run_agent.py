@@ -7,17 +7,16 @@ Usage:
   python run_agent.py --lab-id=LAB_ID --agent-token=TOKEN --backend-url=https://your-api.com
   python run_agent.py --config=agent_config.json
 
-Example agent_config.json:
+Robot addresses for production come from the cloud app (Fleet Manager): the agent calls
+GET /api/agent/robot-poll-targets. Use --local-robots (or use_local_robots in JSON) only
+for development without the cloud UI.
+
+Example agent_config.json (production — no robots section):
   {
     "lab_id": "abc123",
     "agent_token": "your-token",
     "backend_url": "https://your-api.com",
-    "robot_poll_interval_seconds": 5,
-    "robots": [
-      { "ip": "198.51.100.73", "scheme": "https", "port": 31950 },
-      { "ip": "203.0.113.198", "scheme": "https", "port": 31950 },
-      { "ip": "localhost", "scheme": "http", "port": 31950 }
-    ]
+    "robot_poll_interval_seconds": 5
   }
 """
 
@@ -44,6 +43,8 @@ ROBOT_TIMEOUT = 10.0
 BACKEND_TIMEOUT = 30.0
 MIN_BACKOFF = 5.0
 MAX_BACKOFF = 60.0
+# How often to refresh robot list from the cloud (when not using --local-robots).
+TARGETS_REFRESH_SECONDS = 30.0
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,6 +125,48 @@ def build_telemetry_payload(robots_config: list, timeout: float = ROBOT_TIMEOUT)
     return payload_robots
 
 
+def fetch_robot_poll_targets(
+    backend_url: str,
+    agent_token: str,
+    timeout: float = BACKEND_TIMEOUT,
+) -> list[dict] | None:
+    """GET poll targets from cloud. Returns None on HTTP/network failure."""
+    url = f"{backend_url.rstrip('/')}/api/agent/robot-poll-targets"
+    headers = {
+        "Authorization": f"Bearer {agent_token}",
+        "Accept": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            r = client.get(url, headers=headers)
+            if r.status_code != 200:
+                log.error("GET robot-poll-targets %s: %s", r.status_code, r.text[:200])
+                return None
+            data = r.json()
+            robots = data.get("robots")
+            if not isinstance(robots, list):
+                return None
+            out: list[dict] = []
+            for item in robots:
+                if not isinstance(item, dict):
+                    continue
+                ip = (item.get("ip") or "").strip()
+                if not ip:
+                    continue
+                scheme = (item.get("scheme") or "http").lower()
+                if scheme not in ("http", "https"):
+                    scheme = "http"
+                try:
+                    port = int(item.get("port") or 31950)
+                except (TypeError, ValueError):
+                    port = 31950
+                out.append({"ip": ip, "scheme": scheme, "port": port})
+            return out
+    except Exception as e:
+        log.error("GET robot-poll-targets failed: %s", e)
+        return None
+
+
 def post_telemetry(
     backend_url: str,
     agent_token: str,
@@ -157,15 +200,30 @@ def load_config(path: str) -> dict:
         raise ValueError("Config must be a JSON object")
     robots = data.get("robots")
     if robots is None:
-        robots = DEFAULT_ROBOTS
+        robots = []
     if not isinstance(robots, list):
-        robots = DEFAULT_ROBOTS
+        robots = []
     data["robots"] = robots
     data.setdefault("robot_poll_interval_seconds", 5)
     data.setdefault("backend_url", os.environ.get("BACKEND_URL", ""))
     data.setdefault("lab_id", os.environ.get("LAB_ID", ""))
     data.setdefault("agent_token", os.environ.get("AGENT_TOKEN", ""))
+    data.setdefault("use_local_robots", False)
     return data
+
+
+def _env_use_local_robots() -> bool:
+    v = os.environ.get("AGENT_USE_LOCAL_ROBOTS", "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
+def _config_use_local_robots(cfg: dict) -> bool:
+    v = cfg.get("use_local_robots")
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes")
+    return False
 
 
 def main() -> int:
@@ -173,48 +231,114 @@ def main() -> int:
     ap.add_argument("--lab-id", default=os.environ.get("LAB_ID"), help="Lab ID")
     ap.add_argument("--agent-token", default=os.environ.get("AGENT_TOKEN"), help="Agent token")
     ap.add_argument("--backend-url", default=os.environ.get("BACKEND_URL"), help="Cloud backend URL")
-    ap.add_argument("--robot-ips", help="Comma-separated robot IPs (default: use config or 198.51.100.73,203.0.113.198,localhost)")
+    ap.add_argument("--robot-ips", help="With --local-robots: comma-separated robot IPs")
     ap.add_argument("--config", help="Path to agent_config.json")
     ap.add_argument("--interval", type=float, default=5, help="Poll interval in seconds")
-    ap.add_argument("--https-ips", help="Comma-separated IPs to use HTTPS (default: 198.51.100.73,203.0.113.198)")
+    ap.add_argument("--https-ips", help="With --local-robots: comma-separated IPs to use HTTPS")
+    ap.add_argument(
+        "--local-robots",
+        action="store_true",
+        help="Use robots from config/--robot-ips instead of the cloud (dev only; production uses Fleet Manager)",
+    )
     args = ap.parse_args()
+
+    use_local = bool(args.local_robots)
+    if not use_local:
+        use_local = _env_use_local_robots()
 
     if args.config:
         config = load_config(args.config)
         lab_id = config.get("lab_id") or args.lab_id
         agent_token = config.get("agent_token") or args.agent_token
         backend_url = config.get("backend_url") or args.backend_url
-        robots_config = config.get("robots", DEFAULT_ROBOTS)
         interval = float(config.get("robot_poll_interval_seconds", args.interval))
+        if not use_local:
+            use_local = _config_use_local_robots(config) or bool(args.local_robots)
+        if use_local:
+            robots_config = list(config.get("robots") or [])
+            if not robots_config:
+                robots_config = list(DEFAULT_ROBOTS)
+        else:
+            robots_config = []
     else:
         lab_id = args.lab_id
         agent_token = args.agent_token
         backend_url = args.backend_url
         interval = args.interval
-        if args.robot_ips:
-            ips = [s.strip() for s in args.robot_ips.split(",") if s.strip()]
-            https_ips = set()
-            if args.https_ips:
-                https_ips = {s.strip() for s in args.https_ips.split(",") if s.strip()}
+        if use_local:
+            if args.robot_ips:
+                ips = [s.strip() for s in args.robot_ips.split(",") if s.strip()]
+                https_ips = set()
+                if args.https_ips:
+                    https_ips = {s.strip() for s in args.https_ips.split(",") if s.strip()}
+                else:
+                    https_ips = {"198.51.100.73", "203.0.113.198"}
+                robots_config = [
+                    {"ip": ip, "scheme": "https" if ip in https_ips else "http", "port": 31950}
+                    for ip in ips
+                ]
             else:
-                https_ips = {"198.51.100.73", "203.0.113.198"}
-            robots_config = [
-                {"ip": ip, "scheme": "https" if ip in https_ips else "http", "port": 31950}
-                for ip in ips
-            ]
+                robots_config = list(DEFAULT_ROBOTS)
         else:
-            robots_config = DEFAULT_ROBOTS
+            robots_config = []
 
     if not lab_id or not agent_token or not backend_url:
         log.error("Provide --lab-id, --agent-token, and --backend-url (or set LAB_ID, AGENT_TOKEN, BACKEND_URL)")
         return 1
 
-    log.info("Lab %s; backend %s; robots %s; interval %.1fs", lab_id, backend_url, [r.get("ip") if isinstance(r, dict) else r for r in robots_config], interval)
+    if use_local:
+        log.info(
+            "Lab %s; backend %s; LOCAL robots %s; interval %.1fs",
+            lab_id,
+            backend_url,
+            [r.get("ip") if isinstance(r, dict) else r for r in robots_config],
+            interval,
+        )
+    else:
+        log.info(
+            "Lab %s; backend %s; robot list from cloud (GET /api/agent/robot-poll-targets); interval %.1fs",
+            lab_id,
+            backend_url,
+            interval,
+        )
+
     backoff = MIN_BACKOFF
+    cached_cloud_robots: list = []
+    last_targets_fetch = 0.0
+    have_cloud_targets_response = False
 
     while True:
         try:
-            robots_payload = build_telemetry_payload(robots_config)
+            if use_local:
+                active_robots = robots_config
+            else:
+                now = time.time()
+                if now - last_targets_fetch >= TARGETS_REFRESH_SECONDS:
+                    fetched = fetch_robot_poll_targets(backend_url, agent_token)
+                    last_targets_fetch = now
+                    if fetched is not None:
+                        cached_cloud_robots = fetched
+                        have_cloud_targets_response = True
+                    elif not cached_cloud_robots:
+                        log.warning(
+                            "Could not load robot list from cloud yet; retry in %.0fs",
+                            TARGETS_REFRESH_SECONDS,
+                        )
+                active_robots = cached_cloud_robots
+
+            if not use_local and not active_robots:
+                if have_cloud_targets_response:
+                    log.warning(
+                        "No robot addresses in the cloud for this lab. Add them in Fleet Manager (web app)."
+                    )
+                else:
+                    log.warning(
+                        "Waiting for robot list from the cloud API (GET /api/agent/robot-poll-targets)."
+                    )
+                time.sleep(interval)
+                continue
+
+            robots_payload = build_telemetry_payload(active_robots)
             if not robots_payload:
                 log.warning("No robot data collected this cycle")
             else:

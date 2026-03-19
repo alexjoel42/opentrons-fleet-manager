@@ -39,6 +39,8 @@ class Lab(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     owner_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Addresses the relay agent polls (set from the cloud UI), not from the agent machine.
+    robot_poll_targets: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     owner: Mapped[User | None] = relationship("User", back_populates="labs")
     agent_tokens: Mapped[list["LabAgentToken"]] = relationship(

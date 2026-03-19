@@ -1,0 +1,200 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import {
+  fetchLabs,
+  fetchRobotPollTargets,
+  type RobotPollTarget,
+  saveRobotPollTargets,
+} from '../api/cloudApi';
+import { parseRobotIpsFromText } from '../utils/robotAddress';
+
+function defaultSchemeForIp(ip: string): 'http' | 'https' {
+  const lower = ip.trim().toLowerCase();
+  if (lower === 'localhost' || lower === '127.0.0.1' || lower === '::1') return 'http';
+  return 'https';
+}
+
+export function CloudRobotPollTargets({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const { data: labs } = useQuery({
+    queryKey: ['cloud', 'labs', token],
+    queryFn: () => fetchLabs(token),
+    enabled: !!token,
+  });
+  const [labId, setLabId] = useState<string>('');
+
+  useEffect(() => {
+    if (labs && labs.length > 0 && !labId) {
+      setLabId(labs[0].id);
+    }
+  }, [labs, labId]);
+
+  const { data: targets, isLoading } = useQuery({
+    queryKey: ['cloud', 'robot-poll-targets', token, labId],
+    queryFn: () => fetchRobotPollTargets(token, labId),
+    enabled: !!token && !!labId,
+  });
+
+  const [rows, setRows] = useState<RobotPollTarget[]>([]);
+  const [importText, setImportText] = useState('');
+
+  useEffect(() => {
+    if (targets) setRows(targets.length > 0 ? [...targets] : [{ ip: '', scheme: 'https', port: 31950 }]);
+  }, [targets]);
+
+  const saveMut = useMutation({
+    mutationFn: () => saveRobotPollTargets(token, labId, rows.filter((r) => r.ip.trim())),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['cloud', 'robot-poll-targets', token, labId] });
+      void qc.invalidateQueries({ queryKey: ['cloud', 'robots', token] });
+    },
+  });
+
+  if (!labs?.length) return null;
+
+  return (
+    <section
+      className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
+      aria-label="Robot addresses for relay agent"
+    >
+      <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
+        Robot addresses (relay agent)
+      </h2>
+      <p className="mt-2 text-sm text-muted-foreground">
+        The lab relay agent loads this list from the cloud — it does not store robot IPs locally in production.
+        Set your Opentrons robot IPs or hostnames here; the agent polls them and sends telemetry to the backend.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <label className="text-sm text-muted-foreground" htmlFor="poll-lab">
+          Lab
+        </label>
+        <select
+          id="poll-lab"
+          className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+          value={labId}
+          onChange={(e) => setLabId(e.target.value)}
+        >
+          {labs.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {isLoading ? (
+        <p className="mt-4 text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="mt-6 space-y-3">
+          {rows.map((row, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[10rem] flex-1">
+                <label className="text-xs text-muted-foreground">Address</label>
+                <input
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={row.ip}
+                  placeholder="e.g. 192.168.1.10"
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i], ip: e.target.value };
+                    setRows(next);
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Scheme</label>
+                <select
+                  className="mt-1 block rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={row.scheme}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i], scheme: e.target.value as 'http' | 'https' };
+                    setRows(next);
+                  }}
+                >
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                </select>
+              </div>
+              <div className="w-24">
+                <label className="text-xs text-muted-foreground">Port</label>
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={row.port}
+                  min={1}
+                  max={65535}
+                  onChange={(e) => {
+                    const next = [...rows];
+                    next[i] = { ...next[i], port: Number(e.target.value) || 31950 };
+                    setRows(next);
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-destructive/50 px-2 py-2 text-sm text-destructive hover:bg-destructive/10"
+                onClick={() => setRows(rows.filter((_, j) => j !== i))}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="text-sm text-primary underline-offset-4 hover:underline"
+            onClick={() => setRows([...rows, { ip: '', scheme: 'https', port: 31950 }])}
+          >
+            + Add row
+          </button>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <label className="text-xs text-muted-foreground" htmlFor="bulk-import">
+          Bulk import (paste IPs or JSON; merges into rows above)
+        </label>
+        <textarea
+          id="bulk-import"
+          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+          rows={3}
+          placeholder="10.0.0.1, 10.0.0.2 or JSON from your network list"
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+        />
+        <button
+          type="button"
+          className="mt-2 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-sm hover:bg-muted"
+          onClick={() => {
+            const { addresses } = parseRobotIpsFromText(importText);
+            const added = addresses.map((ip) => ({
+              ip,
+              scheme: defaultSchemeForIp(ip),
+              port: 31950,
+            }));
+            setRows((prev) => [...prev.filter((r) => r.ip.trim()), ...added]);
+            setImportText('');
+          }}
+        >
+          Merge imported addresses
+        </button>
+      </div>
+
+      <div className="mt-6 flex items-center gap-3">
+        <button
+          type="button"
+          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          disabled={saveMut.isPending || !labId}
+          onClick={() => saveMut.mutate()}
+        >
+          {saveMut.isPending ? 'Saving…' : 'Save to cloud'}
+        </button>
+        {saveMut.isError && (
+          <span className="text-sm text-destructive">{(saveMut.error as Error).message}</span>
+        )}
+        {saveMut.isSuccess && <span className="text-sm text-muted-foreground">Saved.</span>}
+      </div>
+    </section>
+  );
+}

@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -62,3 +63,36 @@ jobs:
             agent/dist/*.whl
             agent/dist/*.tar.gz
         working-directory: Alex_Observability/Observability_V0
+
+  publish-pypi:
+    name: Publish agent to PyPI
+    needs: release
+    runs-on: ubuntu-latest
+    environment: pypi
+    defaults:
+      run:
+        working-directory: Alex_Observability/Observability_V0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Inject version into agent pyproject.toml
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          sed -i "s/^version = .*/version = \"$VERSION\"/" agent/pyproject.toml
+
+      - name: Build Python agent
+        run: uv build agent/
+        working-directory: Alex_Observability/Observability_V0
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: Alex_Observability/Observability_V0/agent/dist

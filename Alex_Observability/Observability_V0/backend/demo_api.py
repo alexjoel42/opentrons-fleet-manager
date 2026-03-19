@@ -871,6 +871,54 @@ async def post_agent_telemetry(
     return {"ok": True, "lab_id": lab.id}
 
 
+@app.get("/api/agent/robot-poll-targets")
+async def get_agent_robot_poll_targets(
+    request: Request,
+    db: AsyncSession = Depends(get_agent_db_session),
+):
+    """Return robot addresses the relay agent should poll for this lab (configured in the cloud app).
+
+    Same Authorization as telemetry: Bearer lab agent token. The agent should use this list
+    instead of local config for production deployments.
+    """
+    from agent_auth import verify_agent_token
+
+    auth = request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth[7:].strip()
+    lab = await verify_agent_token(db, token)
+    targets = lab.robot_poll_targets
+    if targets is None:
+        targets = []
+    return {"lab_id": lab.id, "robots": targets}
+
+
+def _normalize_robot_poll_targets(raw: Any) -> list[dict[str, Any]]:
+    """Validate request body robots list for lab.robot_poll_targets."""
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="robots must be a list")
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="each robot must be an object with ip, scheme, port")
+        ip = (item.get("ip") or "").strip()
+        if not _is_valid_robot_address(ip):
+            raise HTTPException(status_code=400, detail=f"Invalid robot address: {ip!r}")
+        scheme = (item.get("scheme") or "http").lower()
+        if scheme not in ("http", "https"):
+            raise HTTPException(status_code=400, detail=f"scheme must be http or https for {ip!r}")
+        port = item.get("port", DEFAULT_PORT)
+        try:
+            port_int = int(port)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid port for {ip!r}")
+        if not 1 <= port_int <= 65535:
+            raise HTTPException(status_code=400, detail=f"Invalid port for {ip!r}")
+        out.append({"ip": ip, "scheme": scheme, "port": port_int})
+    return out
+
+
 async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_agent_db_session),
@@ -992,6 +1040,46 @@ async def get_lab(
     if not lab or lab.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Lab not found")
     return {"id": lab.id, "name": lab.name, "created_at": lab.created_at.isoformat() if lab.created_at else None}
+
+
+@app.get("/api/labs/{lab_id}/robot-poll-targets")
+async def get_lab_robot_poll_targets(
+    lab_id: str,
+    db: AsyncSession = Depends(get_agent_db_session),
+    user: Any = Depends(get_current_user),
+):
+    """List robot addresses the relay agent should poll for this lab (managed in the cloud UI)."""
+    from models import Lab
+
+    lab = await db.get(Lab, lab_id)
+    if not lab or lab.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    targets = lab.robot_poll_targets
+    if targets is None:
+        targets = []
+    return {"robots": targets}
+
+
+@app.put("/api/labs/{lab_id}/robot-poll-targets")
+async def put_lab_robot_poll_targets(
+    lab_id: str,
+    body: dict[str, Any] = Body(...),
+    db: AsyncSession = Depends(get_agent_db_session),
+    user: Any = Depends(get_current_user),
+):
+    """Replace robot poll targets for the lab. Body: {\"robots\": [{\"ip\",\"scheme\",\"port\"}, ...]}."""
+    from models import Lab
+
+    lab = await db.get(Lab, lab_id)
+    if not lab or lab.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    raw = body.get("robots")
+    if raw is None:
+        raise HTTPException(status_code=400, detail="missing robots")
+    normalized = _normalize_robot_poll_targets(raw)
+    lab.robot_poll_targets = normalized
+    await db.flush()
+    return {"robots": normalized}
 
 
 @app.post("/api/labs/{lab_id}/tokens")

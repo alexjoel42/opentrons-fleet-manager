@@ -56,6 +56,40 @@ export interface CloudRobotSummary {
   logs: string | null;
 }
 
+/** Targets the relay agent fetches from GET /api/agent/robot-poll-targets (edited here, not on the agent). */
+export interface RobotPollTarget {
+  ip: string;
+  scheme: 'http' | 'https';
+  port: number;
+}
+
+export async function fetchRobotPollTargets(token: string, labId: string): Promise<RobotPollTarget[]> {
+  const res = await fetch(`${BASE}/api/labs/${encodeURIComponent(labId)}/robot-poll-targets`, {
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to load robot poll targets');
+  const robots = (data as { robots?: unknown }).robots;
+  if (!Array.isArray(robots)) return [];
+  return robots as RobotPollTarget[];
+}
+
+export async function saveRobotPollTargets(
+  token: string,
+  labId: string,
+  robots: RobotPollTarget[],
+): Promise<RobotPollTarget[]> {
+  const res = await fetch(`${BASE}/api/labs/${encodeURIComponent(labId)}/robot-poll-targets`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ robots }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to save robot poll targets');
+  const out = (data as { robots?: unknown }).robots;
+  return Array.isArray(out) ? (out as RobotPollTarget[]) : [];
+}
+
 export async function fetchCloudRobots(token: string, labId?: string): Promise<CloudRobotSummary[]> {
   const url = labId ? `${BASE}/api/cloud/robots?lab_id=${encodeURIComponent(labId)}` : `${BASE}/api/cloud/robots`;
   const res = await fetch(url, { headers: authHeaders(token) });

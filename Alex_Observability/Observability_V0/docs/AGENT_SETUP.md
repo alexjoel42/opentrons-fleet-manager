@@ -10,6 +10,19 @@ The relay agent runs in your lab, polls Opentrons robot(s) on the local network,
 
 ## Install
 
+### From PyPI (after release)
+
+Install the published package and use the `observability-agent` command (same behavior as `python agent/run_agent.py` from a git checkout). The PyPI package declares **Python 3.10+** (`requires-python` in `agent/pyproject.toml`).
+
+```bash
+pip install observability-agent
+observability-agent --config=/path/to/agent_config.json
+```
+
+You still need a config file; copy `agent/agent_config.example.json` from this repo and edit it, or create `agent_config.json` by hand as below.
+
+### From this repository
+
 From the repo root (Observability_V0):
 
 ```bash
@@ -23,56 +36,62 @@ source .venv/bin/activate
 pip install -r agent/requirements.txt
 ```
 
-## Configure robots (including HTTPS)
+## Where robot IPs are configured (production)
 
-You can use **periodic check-ins** with specific IPs and choose HTTP vs HTTPS per robot:
+**Robot addresses are managed in the Fleet Manager web app** (e.g. [opentrons-fleet-manager.vercel.app](https://opentrons-fleet-manager.vercel.app/)), not on the agent machine. After you sign in, open the cloud dashboard and use **Robot addresses (relay agent)** for your lab: set each robot’s IP or hostname, **http** vs **https**, and port (usually `31950`).
 
-- **198.51.100.73** and **203.0.113.198** (documentation-range examples): often require **HTTPS** (set `scheme: "https"`); use your lab’s real IPs in production.
-- **localhost**: typically **HTTP** (set `scheme: "http"`).
+The agent calls `GET /api/agent/robot-poll-targets` on your backend (using the lab agent token) and polls only that list. You do **not** put production IPs in `agent_config.json`.
 
-### Option 1: Config file (recommended)
+### Config file (recommended for production)
 
-Copy the example and edit:
+Copy the example and add your lab credentials only:
 
 ```bash
 cp agent/agent_config.example.json agent/agent_config.json
 ```
 
-Edit `agent_config.json`:
+Minimal `agent_config.json` (no `robots` key):
 
 ```json
 {
   "lab_id": "YOUR_LAB_ID",
   "agent_token": "YOUR_AGENT_TOKEN",
   "backend_url": "https://your-observability-api.com",
-  "robot_poll_interval_seconds": 5,
-  "robots": [
-    { "ip": "198.51.100.73", "scheme": "https", "port": 31950 },
-    { "ip": "203.0.113.198", "scheme": "https", "port": 31950 },
-    { "ip": "localhost", "scheme": "http", "port": 31950 }
-  ]
+  "robot_poll_interval_seconds": 5
 }
 ```
 
-Run with config:
+Run:
 
 ```bash
 python agent/run_agent.py --config=agent/agent_config.json
 ```
 
-### Option 2: Command-line and env
+If you installed from PyPI, use the same flags with `observability-agent` instead of `python agent/run_agent.py`.
+
+### Local / dev without the cloud UI (`--local-robots`)
+
+For development, you can keep the robot list on the agent by setting **`use_local_robots": true`** in JSON and a **`robots`** array, or use **`--local-robots`** with **`--robot-ips`** / **`--https-ips`**. Non-localhost lab machines often use **https** on port 31950; **localhost** is usually **http**.
 
 ```bash
-export LAB_ID=your-lab-id
-export AGENT_TOKEN=your-agent-token
-export BACKEND_URL=https://your-api.com
-
-# Default robots: 198.51.100.73, 203.0.113.198 (HTTPS), localhost (HTTP)
-python agent/run_agent.py
-
-# Or specify IPs (HTTPS for IPs listed in --https-ips)
-python agent/run_agent.py --robot-ips=198.51.100.73,203.0.113.198,localhost --https-ips=198.51.100.73,203.0.113.198
+python agent/run_agent.py --local-robots --robot-ips=198.51.100.73,localhost --https-ips=198.51.100.73
 ```
+
+Or in `agent_config.json`:
+
+```json
+{
+  "lab_id": "YOUR_LAB_ID",
+  "agent_token": "YOUR_AGENT_TOKEN",
+  "backend_url": "https://your-observability-api.com",
+  "use_local_robots": true,
+  "robots": [
+    { "ip": "10.0.0.5", "scheme": "https", "port": 31950 }
+  ]
+}
+```
+
+Environment: `AGENT_USE_LOCAL_ROBOTS=true` is equivalent to enabling local robot config.
 
 ## Run as a service (optional)
 
@@ -91,9 +110,59 @@ Ensure the config path and working directory are correct so the script can find 
 | `--agent-token`  | Token from "Create token" for that lab       |
 | `--backend-url`  | Cloud backend base URL (HTTPS)               |
 | `--config`       | Path to `agent_config.json`                  |
-| `--robot-ips`    | Comma-separated IPs (default: 198.51.100.73, 203.0.113.198, localhost) |
-| `--https-ips`    | Comma-separated IPs to use HTTPS (default: 198.51.100.73, 203.0.113.198) |
+| `--local-robots` | Use `robots` from config / `--robot-ips` instead of the cloud list (dev) |
+| `--robot-ips`    | With `--local-robots`: comma-separated IPs |
+| `--https-ips`    | With `--local-robots`: IPs that use HTTPS   |
 | `--interval`     | Poll interval in seconds (default 5)        |
 | `LAB_ID`         | Same as `--lab-id`                           |
 | `AGENT_TOKEN`    | Same as `--agent-token`                      |
 | `BACKEND_URL`    | Same as `--backend-url`                      |
+| `AGENT_USE_LOCAL_ROBOTS` | Set `true` to force local robot list (dev) |
+
+## Publishing to PyPI (maintainers)
+
+The installable package lives under `agent/` ([`agent/pyproject.toml`](../agent/pyproject.toml)): project name **`observability-agent`**, console script **`observability-agent`**.
+
+1. **PyPI account and token** — Create an account on [pypi.org](https://pypi.org), then [Account settings → API tokens](https://pypi.org/manage/account/token/) and create a token (project-scoped to `observability-agent` once the project exists, or a whole-account token for the first upload).
+
+2. **Set version** — In `agent/pyproject.toml`, set `[project] version` to a new [PEP 440](https://peps.python.org/pep-0440/) release (for example `0.1.0`). PyPI does not allow re-uploading the same version twice.
+
+3. **Build and check** (from `agent/`):
+
+   ```bash
+   cd agent
+   pip install build twine
+   rm -rf dist/ build/ *.egg-info
+   python -m build
+   twine check dist/*
+   ```
+
+4. **Upload** — Prefer environment variables so the token is not saved in a file:
+
+   ```bash
+   TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-your-token-here twine upload dist/*
+   ```
+
+   Optional: [TestPyPI](https://test.pypi.org/) dry run:
+
+   ```bash
+   TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-your-test-token-here \
+     twine upload --repository testpypi dist/*
+   pip install -i https://test.pypi.org/simple/ observability-agent
+   ```
+
+After a successful upload, users can `pip install observability-agent` as in [From PyPI (after release)](#from-pypi-after-release).
+
+### GitHub Actions (trusted publisher, no API token)
+
+The repo workflow [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) runs on tags `v*` and includes a **`publish-pypi`** job that uploads the built agent to PyPI using [OIDC trusted publishing](https://docs.pypi.org/trusted-publishers/). In PyPI’s trusted-publisher form, the values must match the **distribution name** and this repo:
+
+| PyPI field | Use |
+|------------|-----|
+| **PyPI project name** | `observability-agent` (must match `[project].name` in `agent/pyproject.toml`, not a display name like `ObservingRobots`) |
+| **Owner** | Your GitHub user or org (e.g. `alexjoel42`) |
+| **Repository name** | Repo name only — e.g. `opentrons-fleet-manager` — not a full `https://github.com/...` URL |
+| **Workflow name** | `release.yml` (the file under `.github/workflows/`) |
+| **Environment name** (optional) | `pypi` — create a GitHub Actions [environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment) with this name on the repo so the job can run |
+
+Pushing a tag such as `v0.1.0` runs the release and then publishes that version to PyPI.

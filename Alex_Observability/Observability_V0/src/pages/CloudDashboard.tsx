@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/authContext';
 import { fetchCloudRobots, fetchLabs, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
+import { CloudRobotPollTargets } from '../components/CloudRobotPollTargets';
 
 function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
   const stale = isStale(robot.last_seen_at);
@@ -80,9 +81,11 @@ export function CloudDashboard() {
           Robot <span className="gradient-text">fleet</span>
         </h1>
         <p className="mt-2 text-muted-foreground">
-          Robots reported by the local agent. Data may be up to a few seconds old.
+          Configure robot addresses below; the relay agent loads them from the cloud. Telemetry may be a few seconds old.
         </p>
       </div>
+
+      {token ? <CloudRobotPollTargets token={token} /> : null}
 
       {labs && labs.length > 0 && (
         <p className="mb-4 text-sm text-muted-foreground">

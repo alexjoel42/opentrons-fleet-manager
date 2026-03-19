@@ -51,8 +51,8 @@ Deploy the FastAPI backend and React frontend to the cloud; run the relay agent 
 
 1. Deploy backend + DB and run migrations; deploy frontend with `VITE_USE_CLOUD=true` and `VITE_API_URL` set.
 2. Open the app, sign up, create a lab, and generate an agent token (via API `POST /api/labs/{lab_id}/tokens` or future UI).
-3. In the lab, copy `agent/agent_config.example.json` to `agent_config.json`, fill in `lab_id`, `agent_token`, and `backend_url`, and set `robots` (e.g. 198.51.100.73 and 203.0.113.198 with `scheme: "https"`, localhost with `scheme: "http"` — replace with your robots’ real IPs).
-4. Run `python agent/run_agent.py --config=agent/agent_config.json`.
+3. In the web app (cloud dashboard), open **Robot addresses (relay agent)** for your lab and add each robot’s IP/hostname, scheme (http/https), and port. This is stored in the database (`labs.robot_poll_targets`); the agent loads it from `GET /api/agent/robot-poll-targets`, not from a local list.
+4. On the lab machine, copy `agent/agent_config.example.json` to `agent_config.json` and fill in only `lab_id`, `agent_token`, and `backend_url` (no `robots` section for production). Run `python agent/run_agent.py --config=agent/agent_config.json`.
 5. Refresh the dashboard; robots should appear with “Last updated X s ago”. If the agent stops, data will show as stale after the threshold (e.g. 60s).
 
 ## Backups and security

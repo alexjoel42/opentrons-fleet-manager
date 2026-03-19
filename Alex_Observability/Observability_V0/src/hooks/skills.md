@@ -11,7 +11,9 @@
 
 **Composed:** `useRobot(ip)` returns `{ health, modules, pipettes, isLoading, isError, error, refetch }` for the detail page.
 
-**Cloud mode:** Cloud dashboard and cloud robot detail use `useQuery` directly with `cloudApi` (`fetchLabs`, `fetchCloudRobots`, `fetchCloudRobot`) and query keys `['cloud', 'labs']`, `['cloud', 'robots']`, `['cloud', 'robot', id]`; token from `useAuth().token`.
+**Cloud mode:** Cloud dashboard uses `useQuery` with **`cloudApi`** (`fetchLabs`, `fetchCloudRobots`, …) and keys **`['cloud', 'labs', token]`**, **`['cloud', 'robots', token]`**. **`CloudRobotPollTargets`** uses **`['cloud', 'robot-poll-targets', token, labId]`** for **`fetchRobotPollTargets`**; **`saveRobotPollTargets`** invalidates **`['cloud', 'robot-poll-targets', …]`** and **`['cloud', 'robots', token]`**. Token from **`useAuth().token`**.
+
+**Cloud robot detail:** `useQuery` with `fetchCloudRobot`, key **`['cloud', 'robot', id, token]`** (pattern as implemented).
 
 **Options (shared):** `retry: 3`, `retryDelay` exponential backoff. `refetchInterval` returns `false` when query is in error.
 
