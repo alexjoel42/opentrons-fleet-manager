@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import ipaddress
 import json
 import os
@@ -33,6 +34,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+_log = logging.getLogger(__name__)
 
 # Default port for Opentrons robot HTTP API (see docs.opentrons.com).
 DEFAULT_PORT = 31950
@@ -532,7 +534,13 @@ def _cors_allow_origins() -> list[str]:
     raw = (os.environ.get("CORS_ORIGINS") or "").strip()
     if not raw:
         return ["*"]
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    out = [o.strip() for o in raw.split(",") if o.strip()]
+    if not out:
+        _log.warning(
+            "CORS_ORIGINS is set but parses to no origins; falling back to '*' (fix the env value)"
+        )
+        return ["*"]
+    return out
 
 
 @app.exception_handler(Exception)

@@ -19,7 +19,7 @@ export function AppLayout() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
             <Link
-              to="/dashboard"
+              to="/"
               className="flex shrink-0 items-center gap-2 text-foreground no-underline transition-opacity hover:opacity-90"
               aria-label="Opentrons Fleet home"
             >

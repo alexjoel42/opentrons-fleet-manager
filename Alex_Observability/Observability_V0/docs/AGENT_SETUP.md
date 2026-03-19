@@ -61,9 +61,18 @@ Minimal `agent_config.json` (no `robots` key):
 }
 ```
 
-Run:
+**Avoid duplicating the API URL:** The Fleet Manager frontend uses `VITE_API_URL` at **build time** (Vercel, etc.); the relay agent does **not** read that file. Use the **same URL** on the lab machine by setting the environment variable `BACKEND_URL` and omitting `backend_url` from JSON (or leaving it empty so env wins):
+
+```json
+{
+  "lab_id": "YOUR_LAB_ID",
+  "agent_token": "YOUR_AGENT_TOKEN",
+  "robot_poll_interval_seconds": 5
+}
+```
 
 ```bash
+export BACKEND_URL=https://your-observability-api.com
 python agent/run_agent.py --config=agent/agent_config.json
 ```
 
