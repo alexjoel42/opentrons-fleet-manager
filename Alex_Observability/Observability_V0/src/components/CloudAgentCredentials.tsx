@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   createLab,
   createLabAgentToken,
@@ -23,11 +23,8 @@ export function CloudAgentCredentials({ token }: { token: string }) {
   const [newAgentToken, setNewAgentToken] = useState<string | null>(null);
   const [copyFlash, setCopyFlash] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (labs && labs.length > 0 && !labId) {
-      setLabId(labs[0].id);
-    }
-  }, [labs, labId]);
+  /** Resolves immediately when labs load (avoids empty Lab ID before useEffect ran). */
+  const effectiveLabId = labId || labs?.[0]?.id || '';
 
   const backendUrl = getCloudApiBaseUrl();
 
@@ -40,7 +37,7 @@ export function CloudAgentCredentials({ token }: { token: string }) {
   });
 
   const generateTokenMut = useMutation({
-    mutationFn: () => createLabAgentToken(token, labId, { label: tokenLabel || undefined }),
+    mutationFn: () => createLabAgentToken(token, effectiveLabId, { label: tokenLabel || undefined }),
     onSuccess: (data) => {
       setNewAgentToken(data.token);
       setTokenLabel('');
@@ -51,7 +48,7 @@ export function CloudAgentCredentials({ token }: { token: string }) {
     newAgentToken && backendUrl
       ? JSON.stringify(
           {
-            lab_id: labId,
+            lab_id: effectiveLabId,
             agent_token: newAgentToken,
             backend_url: backendUrl,
             robot_poll_interval_seconds: 5,
@@ -114,11 +111,37 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         Relay agent credentials
       </h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Use these values in the lab machine for the{' '}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">observability-agent</code> config. The
-        agent token is only shown once when generated — copy it now. You can generate at most{' '}
+        Your sign-in <strong className="text-foreground">access token</strong> is not the same as the{' '}
+        <strong className="text-foreground">agent token</strong> below — the relay uses{' '}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">LAB_ID</code>,{' '}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">AGENT_TOKEN</code>, and{' '}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">BACKEND_URL</code>. The agent token is only
+        shown once when generated — copy it now. You can generate at most{' '}
         <strong className="text-foreground">4 new tokens per lab per day</strong> (UTC).
       </p>
+
+      <div className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
+        <p className="text-sm font-medium text-foreground">Lab ID</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Use this value for the <code className="rounded bg-muted px-1 py-0.5">LAB_ID</code> environment variable
+          when running the relay agent (it is not your login password or access token).
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <code className="max-w-full break-all rounded-md bg-background px-3 py-2 font-mono text-sm text-foreground">
+            {effectiveLabId || '—'}
+          </code>
+          <button
+            type="button"
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+            disabled={!effectiveLabId}
+            onClick={() => {
+              void copyText(effectiveLabId).then(() => flash('lab'));
+            }}
+          >
+            {copyFlash === 'lab' ? 'Copied' : 'Copy Lab ID'}
+          </button>
+        </div>
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <label className="text-sm text-muted-foreground" htmlFor="cred-lab">
@@ -127,7 +150,7 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         <select
           id="cred-lab"
           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={labId}
+          value={effectiveLabId}
           onChange={(e) => {
             setLabId(e.target.value);
             setNewAgentToken(null);
@@ -142,19 +165,6 @@ export function CloudAgentCredentials({ token }: { token: string }) {
       </div>
 
       <div className="mt-4 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lab ID</span>
-          <code className="rounded-md bg-muted/80 px-2 py-1 font-mono text-sm">{labId}</code>
-          <button
-            type="button"
-            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => {
-              void copyText(labId).then(() => flash('lab'));
-            }}
-          >
-            {copyFlash === 'lab' ? 'Copied' : 'Copy'}
-          </button>
-        </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Backend URL
@@ -198,7 +208,7 @@ export function CloudAgentCredentials({ token }: { token: string }) {
           <button
             type="button"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-            disabled={!labId || generateTokenMut.isPending}
+            disabled={!effectiveLabId || generateTokenMut.isPending}
             onClick={() => generateTokenMut.mutate()}
           >
             {generateTokenMut.isPending ? 'Generating…' : 'Generate new agent token'}

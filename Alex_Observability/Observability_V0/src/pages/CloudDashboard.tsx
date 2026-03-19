@@ -50,23 +50,46 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
 
 export function CloudDashboard() {
   const { token } = useAuth();
-  const { data: labs, isLoading: labsLoading } = useQuery({
+  const labsQuery = useQuery({
     queryKey: ['cloud', 'labs', token],
     queryFn: () => fetchLabs(token!),
     enabled: !!token,
   });
-  const { data: robots, isLoading: robotsLoading } = useQuery({
+  const robotsQuery = useQuery({
     queryKey: ['cloud', 'robots', token],
     queryFn: () => fetchCloudRobots(token!),
     enabled: !!token,
   });
 
-  const isLoading = labsLoading || robotsLoading;
+  const isLoading = labsQuery.isLoading || robotsQuery.isLoading;
+  const loadError = (() => {
+    const a = labsQuery.error;
+    const b = robotsQuery.error;
+    if (a) return a instanceof Error ? a.message : String(a);
+    if (b) return b instanceof Error ? b.message : String(b);
+    return null;
+  })();
+  const labs = labsQuery.data;
+  const robots = robotsQuery.data;
 
   if (isLoading) {
     return (
       <div className="py-12 text-center">
         <p className="text-muted-foreground">Loading labs and robots…</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-xl border border-error/40 bg-error/5 px-6 py-8">
+        <p className="font-medium text-error">Could not load cloud data</p>
+        <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+        <p className="mt-4 text-sm text-muted-foreground">
+          If you see a CORS message in the browser console, set <code className="text-foreground">CORS_ORIGINS</code> on
+          the API to your app origin (e.g. <code className="text-foreground">https://opentrons-fleet-manager.vercel.app</code>
+          ). 500 errors usually mean a database or server issue — check API logs.
+        </p>
       </div>
     );
   }

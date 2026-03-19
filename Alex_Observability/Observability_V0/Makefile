@@ -106,7 +106,9 @@ seed-lab:
 	cd $(BACKEND) && ../$(VENV_BIN)/python -m scripts.seed_lab "$(LAB_NAME)"
 
 run-agent:
-	@echo "Run the relay agent (set LAB_ID, AGENT_TOKEN, BACKEND_URL or use --config=agent/agent_config.json)..."
+	@echo "Run the relay agent: export LAB_ID AGENT_TOKEN BACKEND_URL; optional: ROBOT_POLL_INTERVAL_SECONDS"
+	@echo "  $(VENV_BIN)/python agent/run_agent.py"
+	@echo "Or: AGENT_ARGS='--config=agent/agent_config.json' make run-agent"
 	$(VENV_BIN)/python agent/run_agent.py $(AGENT_ARGS)
 
 # Fetch protocol for a run (works without backend: talks to robot directly if backend unreachable)

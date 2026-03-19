@@ -97,7 +97,7 @@ You can run the app in **cloud mode**: the backend uses PostgreSQL and user auth
 
 - **Backend**: Set `DATABASE_URL` (PostgreSQL). Run migrations: `make db-migrate` (or `cd backend && alembic upgrade head`). Create a user and lab via signup and the API, or run `make seed-lab` (optionally `make seed-lab LAB_NAME="My Lab"`) to seed a lab and print an agent token.
 - **Frontend**: Set `VITE_USE_CLOUD=true` and `VITE_API_URL` to your cloud backend URL. Users sign in and see labs/robots; "Last updated X ago" and a staleness warning when data is older than 60s (configurable via `VITE_STALE_THRESHOLD_SECONDS`).
-- **Agent**: On a machine in the lab that can reach the robots, run `make run-agent` (with `LAB_ID`, `AGENT_TOKEN`, `BACKEND_URL` set) or `python agent/run_agent.py --config=agent/agent_config.json`. **Robot IPs are configured in the cloud app** (dashboard → *Robot addresses (relay agent)*); the agent loads them via `GET /api/agent/robot-poll-targets`. Use `--local-robots` only for dev. See [docs/AGENT_SETUP.md](docs/AGENT_SETUP.md) and [docs/DEPLOY.md](docs/DEPLOY.md).
+- **Agent**: On a machine in the lab that can reach the robots, export `LAB_ID`, `AGENT_TOKEN`, and `BACKEND_URL`, then `make run-agent` or `python agent/run_agent.py` (no JSON file required). **Robot IPs are configured in the cloud app** (dashboard → *Robot addresses (relay agent)*); the agent loads them via `GET /api/agent/robot-poll-targets`. Optional `--config=agent/agent_config.json` for file-based config. Use `--local-robots` only for dev. See [docs/AGENT_SETUP.md](docs/AGENT_SETUP.md) and [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ---
 

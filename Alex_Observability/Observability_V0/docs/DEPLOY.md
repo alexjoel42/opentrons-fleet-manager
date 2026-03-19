@@ -58,14 +58,17 @@ Without this, the browser shows **CORS** errors and the app cannot load labs or 
 ## Agent distribution
 
 - **Option A**: Publish the `agent/` directory (e.g. in a GitHub release) with `run_agent.py` and `requirements.txt`. Users install with `pip install -r agent/requirements.txt` and run with their config.
-- **Option B**: Package as a PyPI package (e.g. `opentrons-observability-agent`) with a CLI entry point.
+- **Option B**: Install from PyPI (`pip install observability-agent`) and run the **`observability-agent`** CLI — same flags as `python agent/run_agent.py` from a git checkout (see [AGENT_SETUP.md](AGENT_SETUP.md)).
 
 ## Quick start (end-to-end)
 
 1. Deploy backend + DB and run migrations; deploy frontend with `VITE_USE_CLOUD=true` and `VITE_API_URL` set.
 2. Open the app, sign up, create a lab, and generate an agent token (via API `POST /api/labs/{lab_id}/tokens` or future UI).
 3. In the web app (cloud dashboard), open **Robot addresses (relay agent)** for your lab and add each robot’s IP/hostname, scheme (http/https), and port. This is stored in the database (`labs.robot_poll_targets`); the agent loads it from `GET /api/agent/robot-poll-targets`, not from a local list.
-4. On the lab machine, copy `agent/agent_config.example.json` to `agent_config.json` and fill in `lab_id` and `agent_token` (no `robots` section for production). Set the API URL either in JSON as `backend_url` **or** export `BACKEND_URL` to match `VITE_API_URL` (recommended — avoids duplicating the URL in a file). Run `python agent/run_agent.py --config=agent/agent_config.json`.
+4. On the lab machine, set **`LAB_ID`**, **`AGENT_TOKEN`**, and **`BACKEND_URL`** (same base URL as `VITE_API_URL`) and run the agent — **no JSON file required**:
+   - **From repo:** `python agent/run_agent.py`
+   - **From PyPI:** `observability-agent`
+   Optional: `ROBOT_POLL_INTERVAL_SECONDS` for poll interval. Advanced users can still use `--config=agent_config.json`; see [AGENT_SETUP.md](AGENT_SETUP.md).
 5. Refresh the dashboard; robots should appear with “Last updated X s ago”. If the agent stops, data will show as stale after the threshold (e.g. 60s).
 
 ## Backups and security

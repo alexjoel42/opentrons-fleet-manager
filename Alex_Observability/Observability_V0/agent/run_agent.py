@@ -3,21 +3,22 @@
 Local relay agent: polls Opentrons robot(s) on the lab network and POSTs telemetry to the cloud.
 Supports HTTP and HTTPS per robot (e.g. 198.51.100.73 and 203.0.113.198 over HTTPS, localhost over HTTP).
 
-Usage:
-  python run_agent.py --lab-id=LAB_ID --agent-token=TOKEN --backend-url=https://your-api.com
+Usage (recommended — no JSON file):
+  export LAB_ID=... AGENT_TOKEN=... BACKEND_URL=https://your-api.com
+  python run_agent.py
+
+  # Optional: poll interval (seconds), default 5
+  export ROBOT_POLL_INTERVAL_SECONDS=10
+
+CLI flags override env when set:
+  python run_agent.py --lab-id=... --agent-token=... --backend-url=...
+
+Optional JSON (advanced):
   python run_agent.py --config=agent_config.json
 
 Robot addresses for production come from the cloud app (Fleet Manager): the agent calls
 GET /api/agent/robot-poll-targets. Use --local-robots (or use_local_robots in JSON) only
 for development without the cloud UI.
-
-Example agent_config.json (production — no robots section):
-  {
-    "lab_id": "abc123",
-    "agent_token": "your-token",
-    "backend_url": "https://your-api.com",
-    "robot_poll_interval_seconds": 5
-  }
 """
 
 from __future__ import annotations
@@ -193,6 +194,18 @@ def post_telemetry(
         return False
 
 
+def _env_poll_interval_seconds(default: float = 5.0) -> float:
+    for key in ("ROBOT_POLL_INTERVAL_SECONDS", "AGENT_POLL_INTERVAL_SECONDS"):
+        raw = os.environ.get(key, "").strip()
+        if not raw:
+            continue
+        try:
+            return float(raw)
+        except ValueError:
+            log.warning("Ignoring invalid %s=%r", key, raw)
+    return default
+
+
 def load_config(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
@@ -204,7 +217,7 @@ def load_config(path: str) -> dict:
     if not isinstance(robots, list):
         robots = []
     data["robots"] = robots
-    data.setdefault("robot_poll_interval_seconds", 5)
+    data.setdefault("robot_poll_interval_seconds", _env_poll_interval_seconds(5.0))
     data.setdefault("backend_url", os.environ.get("BACKEND_URL", ""))
     data.setdefault("lab_id", os.environ.get("LAB_ID", ""))
     data.setdefault("agent_token", os.environ.get("AGENT_TOKEN", ""))
@@ -227,13 +240,28 @@ def _config_use_local_robots(cfg: dict) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Opentrons observability relay agent")
-    ap.add_argument("--lab-id", default=os.environ.get("LAB_ID"), help="Lab ID")
-    ap.add_argument("--agent-token", default=os.environ.get("AGENT_TOKEN"), help="Agent token")
-    ap.add_argument("--backend-url", default=os.environ.get("BACKEND_URL"), help="Cloud backend URL")
+    ap = argparse.ArgumentParser(
+        description="Opentrons observability relay agent",
+        epilog=(
+            "Typical production: set LAB_ID, AGENT_TOKEN, BACKEND_URL and run without --config. "
+            "See module docstring."
+        ),
+    )
+    ap.add_argument("--lab-id", default=os.environ.get("LAB_ID"), help="Lab ID (or LAB_ID)")
+    ap.add_argument("--agent-token", default=os.environ.get("AGENT_TOKEN"), help="Agent token (or AGENT_TOKEN)")
+    ap.add_argument(
+        "--backend-url",
+        default=os.environ.get("BACKEND_URL"),
+        help="Cloud backend URL (or BACKEND_URL)",
+    )
     ap.add_argument("--robot-ips", help="With --local-robots: comma-separated robot IPs")
-    ap.add_argument("--config", help="Path to agent_config.json")
-    ap.add_argument("--interval", type=float, default=5, help="Poll interval in seconds")
+    ap.add_argument("--config", help="Optional JSON config (LAB_ID / AGENT_TOKEN / BACKEND_URL env are enough)")
+    ap.add_argument(
+        "--interval",
+        type=float,
+        default=_env_poll_interval_seconds(5.0),
+        help="Poll interval in seconds (default: env ROBOT_POLL_INTERVAL_SECONDS or 5)",
+    )
     ap.add_argument("--https-ips", help="With --local-robots: comma-separated IPs to use HTTPS")
     ap.add_argument(
         "--local-robots",
@@ -283,7 +311,10 @@ def main() -> int:
             robots_config = []
 
     if not lab_id or not agent_token or not backend_url:
-        log.error("Provide --lab-id, --agent-token, and --backend-url (or set LAB_ID, AGENT_TOKEN, BACKEND_URL)")
+        log.error(
+            "Set LAB_ID, AGENT_TOKEN, and BACKEND_URL in the environment (recommended), "
+            "or pass --lab-id, --agent-token, --backend-url, or use --config=..."
+        )
         return 1
 
     if use_local:

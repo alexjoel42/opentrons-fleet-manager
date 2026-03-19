@@ -23,16 +23,13 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
   });
   const [labId, setLabId] = useState<string>('');
 
-  useEffect(() => {
-    if (labs && labs.length > 0 && !labId) {
-      setLabId(labs[0].id);
-    }
-  }, [labs, labId]);
+  /** Matches CloudAgentCredentials: no empty id before useEffect runs. */
+  const effectiveLabId = labId || labs?.[0]?.id || '';
 
   const { data: targets, isLoading } = useQuery({
-    queryKey: ['cloud', 'robot-poll-targets', token, labId],
-    queryFn: () => fetchRobotPollTargets(token, labId),
-    enabled: !!token && !!labId,
+    queryKey: ['cloud', 'robot-poll-targets', token, effectiveLabId],
+    queryFn: () => fetchRobotPollTargets(token, effectiveLabId),
+    enabled: !!token && !!effectiveLabId,
   });
 
   const [rows, setRows] = useState<RobotPollTarget[]>([]);
@@ -43,9 +40,9 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
   }, [targets]);
 
   const saveMut = useMutation({
-    mutationFn: () => saveRobotPollTargets(token, labId, rows.filter((r) => r.ip.trim())),
+    mutationFn: () => saveRobotPollTargets(token, effectiveLabId, rows.filter((r) => r.ip.trim())),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['cloud', 'robot-poll-targets', token, labId] });
+      void qc.invalidateQueries({ queryKey: ['cloud', 'robot-poll-targets', token, effectiveLabId] });
       void qc.invalidateQueries({ queryKey: ['cloud', 'robots', token] });
     },
   });
@@ -72,7 +69,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
         <select
           id="poll-lab"
           className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={labId}
+          value={effectiveLabId}
           onChange={(e) => setLabId(e.target.value)}
         >
           {labs.map((l) => (
@@ -185,7 +182,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
         <button
           type="button"
           className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-          disabled={saveMut.isPending || !labId}
+          disabled={saveMut.isPending || !effectiveLabId}
           onClick={() => saveMut.mutate()}
         >
           {saveMut.isPending ? 'Saving…' : 'Save to cloud'}

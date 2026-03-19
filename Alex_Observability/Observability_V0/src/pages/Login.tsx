@@ -5,12 +5,14 @@ import { useAuth } from '../lib/authContext';
 
 export function Login() {
   const navigate = useNavigate();
-  const { login: setToken } = useAuth();
+  const { login: setToken, isCloudMode } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignup, setIsSignup] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [pasteToken, setPasteToken] = useState('');
+  const [showTokenPaste, setShowTokenPaste] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +28,19 @@ export function Login() {
     } finally {
       setPending(false);
     }
+  };
+
+  const handlePasteToken = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const raw = pasteToken.trim();
+    if (!raw) {
+      setError('Paste your access token');
+      return;
+    }
+    setToken(raw);
+    setPasteToken('');
+    navigate('/dashboard');
   };
 
   return (
@@ -87,6 +102,40 @@ export function Login() {
       >
         {isSignup ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
       </button>
+
+      {isCloudMode && (
+        <div className="mt-8 border-t border-border pt-6">
+          <button
+            type="button"
+            onClick={() => { setShowTokenPaste((v) => !v); setError(null); }}
+            className="w-full text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            {showTokenPaste ? 'Hide' : 'Already have an access token?'}
+          </button>
+          {showTokenPaste && (
+            <form onSubmit={handlePasteToken} className="mt-3 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Paste the JWT from a successful login API response (e.g. <code className="text-foreground">access_token</code> value).
+              </p>
+              <textarea
+                id="paste-token"
+                value={pasteToken}
+                onChange={(e) => setPasteToken(e.target.value)}
+                placeholder="eyJ…"
+                rows={3}
+                autoComplete="off"
+                className="w-full rounded-xl border border-border bg-transparent px-3 py-2 font-mono text-xs text-foreground focus:ring-2 focus:ring-ring"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-xl border border-border bg-muted/40 py-2 text-sm font-medium text-foreground hover:bg-muted/60"
+              >
+                Continue to dashboard
+              </button>
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }
