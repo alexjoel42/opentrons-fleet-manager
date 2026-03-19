@@ -59,10 +59,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           files: |
-            observability-v0-frontend-${{ github.ref_name }}.zip
-            agent/dist/*.whl
-            agent/dist/*.tar.gz
-        working-directory: Alex_Observability/Observability_V0
+            Alex_Observability/Observability_V0/observability-v0-frontend-${{ github.ref_name }}.zip
+            Alex_Observability/Observability_V0/agent/dist/*.whl
+            Alex_Observability/Observability_V0/agent/dist/*.tar.gz
 
   publish-pypi:
     name: Publish agent to PyPI
