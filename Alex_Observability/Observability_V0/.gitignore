@@ -17,6 +17,10 @@ agent/build
 release-artifacts
 *.local
 
+# Secrets and machine-specific config (use .env.example as a template)
+.env
+.env.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

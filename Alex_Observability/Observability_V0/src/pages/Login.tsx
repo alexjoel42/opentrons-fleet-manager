@@ -19,6 +19,7 @@ export function Login() {
     try {
       const res = isSignup ? await signup(email, password) : await login(email, password);
       setToken(res.access_token);
+      setPassword('');
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
@@ -42,7 +43,9 @@ export function Login() {
           </label>
           <input
             id="email"
+            name="email"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -55,7 +58,9 @@ export function Login() {
           </label>
           <input
             id="password"
+            name="password"
             type="password"
+            autoComplete={isSignup ? 'new-password' : 'current-password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
