@@ -47,28 +47,6 @@ export function Dashboard() {
     addMutation.mutate(ip);
   };
 
-  if (isLoading) {
-    return (
-      <div className="py-12 text-center">
-        <p className="text-muted-foreground">Loading robot list…</p>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="py-12 text-center">
-        <p className="text-error">Failed to load robots: {error instanceof Error ? error.message : 'Unknown error'}</p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          <Link to="/" className="text-accent hover:underline">
-            Configure robot IP addresses
-          </Link>{' '}
-          first, and ensure the backend is running (<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">make run-backend</code>).
-        </p>
-      </div>
-    );
-  }
-
   const snap = fleet.data;
   const fleetQueryError =
     fleet.isError && fleet.error instanceof Error
@@ -126,6 +104,28 @@ export function Dashboard() {
     }
     return o;
   }, [filterCounts]);
+
+  if (isLoading) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-muted-foreground">Loading robot list…</p>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-error">Failed to load robots: {error instanceof Error ? error.message : 'Unknown error'}</p>
+        <p className="mt-4 text-sm text-muted-foreground">
+          <Link to="/" className="text-accent hover:underline">
+            Configure robot IP addresses
+          </Link>{' '}
+          first, and ensure the backend is running (<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">make run-backend</code>).
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div>
