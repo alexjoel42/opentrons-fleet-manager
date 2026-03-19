@@ -18,9 +18,19 @@
 - Robot list: **local mode** from `GET /api/robots` (IP list in `robot_ips.json` / Setup); **cloud mode** from `GET /api/cloud/robots` (JWT, `last_seen_at`, staleness). **Agent poll list** is **not** the local `/api/robots` store — it is **`labs.robot_poll_targets`** edited in the cloud UI.
 - Cloud read routes under `/api/cloud/*` to avoid clashing with IP-based `/api/robots/{ip}/*`.
 
+**First-time cloud user flow (UI → agent):**
+1. Open the app → **Sign up / Log in** (`/login`). On success a user JWT is stored in localStorage and you land on `/dashboard`.
+2. *(Optional pre-step)* Setup (`/`) is hidden in cloud mode — robot IPs for the relay agent are configured on the dashboard, not here.
+3. **Dashboard** always renders **Relay agent credentials** (`CloudAgentCredentials`) immediately after login, even before any lab exists or if `GET /api/labs` fails.
+4. Click **Create lab** in the credentials card → calls `POST /api/labs` → lab is created and its **Lab ID** is shown.
+5. Click **Generate new agent token** → calls `POST /api/labs/{lab_id}/tokens` → token shown **once**. Copy it now (plus the Lab ID and Backend URL shown in the same card).
+6. In the **Robot addresses (relay agent)** section below, add each robot's IP / hostname, scheme (http/https), and port → **Save to cloud**.
+7. On the lab machine, install the agent (`pip install observability-agent` or from the repo) and set three env vars (or `agent_config.json`): `LAB_ID`, `AGENT_TOKEN`, `BACKEND_URL`. Run `observability-agent` — no `robots` key needed; the agent reads IPs from the cloud.
+8. Robots appear on the dashboard as telemetry arrives.
+
 **Run:**
 - **Local:** Backend `make run-backend` (or `uvicorn demo_api:app --reload` from `backend/`). Frontend `make dev`. Set `ROBOT_IPS` or add IPs in Setup (local fleet only).
-- **Cloud:** `DATABASE_URL`, migrate, signup + labs + agent token. Frontend: `VITE_USE_CLOUD=true`, `VITE_API_URL` → API. **Add robot addresses** in dashboard (**Robot addresses (relay agent)**). Agent: minimal `agent_config.json` (`lab_id`, `agent_token`, `backend_url` only) or `make run-agent` — no `robots` key unless `--local-robots`.
+- **Cloud:** `DATABASE_URL`, migrate (`alembic upgrade head` from `backend/`), deploy. Frontend: `VITE_USE_CLOUD=true`, `VITE_API_URL` → API. Follow first-time flow above for labs + agent.
 
 **Docs:** `docs/AGENT_SETUP.md` (install, cloud vs local robots, **PyPI publish** + trusted publisher table), `docs/DEPLOY.md`.
 

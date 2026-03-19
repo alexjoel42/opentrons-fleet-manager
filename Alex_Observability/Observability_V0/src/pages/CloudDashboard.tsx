@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/authContext';
-import { fetchCloudRobots, fetchLabs, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
+import { fetchCloudRobots, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
 import { CloudAgentCredentials } from '../components/CloudAgentCredentials';
 import { CloudRobotPollTargets } from '../components/CloudRobotPollTargets';
 
@@ -54,46 +54,14 @@ function errMessage(e: unknown): string {
 
 export function CloudDashboard() {
   const { token } = useAuth();
-  const labsQuery = useQuery({
-    queryKey: ['cloud', 'labs', token],
-    queryFn: () => fetchLabs(token!),
-    enabled: !!token,
-  });
   const robotsQuery = useQuery({
     queryKey: ['cloud', 'robots', token],
     queryFn: () => fetchCloudRobots(token!),
     enabled: !!token,
   });
 
-  const labsError = labsQuery.error ? errMessage(labsQuery.error) : null;
   const robotsError = robotsQuery.error ? errMessage(robotsQuery.error) : null;
-  const labs = labsQuery.data;
   const robots = robotsQuery.data;
-
-  if (labsQuery.isLoading && !labsQuery.isError) {
-    return (
-      <div className="py-12 text-center">
-        <p className="text-muted-foreground">Loading labs…</p>
-      </div>
-    );
-  }
-
-  if (labsError) {
-    return (
-      <div className="rounded-xl border border-error/40 bg-error/5 px-6 py-8">
-        <p className="font-medium text-error">Could not load labs</p>
-        <p className="mt-2 text-sm text-muted-foreground">{labsError}</p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          If the console shows a CORS error, set <code className="text-foreground">CORS_ORIGINS</code> on the API to
-          this site’s origin (scheme + host, no path) — e.g. <code className="text-foreground">https://your-app.vercel.app</code>.
-          Add Vercel preview URLs separately if you use them.
-        </p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          For HTTP 5xx, check the API host logs and <code className="text-foreground">DATABASE_URL</code> / migrations.
-        </p>
-      </div>
-    );
-  }
 
   const robotsLoading = robotsQuery.isLoading && !robotsQuery.isError;
 
@@ -124,12 +92,6 @@ export function CloudDashboard() {
 
       {token ? <CloudAgentCredentials token={token} /> : null}
       {token ? <CloudRobotPollTargets token={token} /> : null}
-
-      {labs && labs.length > 0 && (
-        <p className="mb-4 text-sm text-muted-foreground">
-          {labs.length} lab{labs.length !== 1 ? 's' : ''}
-        </p>
-      )}
 
       {robotsLoading ? (
         <p className="rounded-xl border border-border bg-muted/30 px-6 py-8 text-center text-muted-foreground">

@@ -13,7 +13,13 @@ async function copyText(text: string): Promise<void> {
 
 export function CloudAgentCredentials({ token }: { token: string }) {
   const qc = useQueryClient();
-  const { data: labs, isLoading } = useQuery({
+  const {
+    data: labs,
+    isLoading,
+    isError,
+    error: labsFetchError,
+    refetch,
+  } = useQuery({
     queryKey: ['cloud', 'labs', token],
     queryFn: () => fetchLabs(token),
     enabled: !!token,
@@ -70,6 +76,47 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         aria-label="Relay agent credentials"
       >
         <p className="text-sm text-muted-foreground">Loading labs…</p>
+      </section>
+    );
+  }
+
+  if (isError) {
+    const msg = labsFetchError instanceof Error ? labsFetchError.message : String(labsFetchError);
+    return (
+      <section
+        className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
+        aria-label="Relay agent credentials"
+      >
+        <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
+          Relay agent credentials
+        </h2>
+        <p className="mt-2 text-sm text-destructive" role="alert">
+          Could not load labs: {msg}
+        </p>
+        <button
+          type="button"
+          className="mt-3 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-muted"
+          onClick={() => void refetch()}
+        >
+          Retry loading labs
+        </button>
+        <p className="mt-4 text-sm text-muted-foreground">
+          If the list fails (CORS, network, 5xx), fix the API first. You can still try{' '}
+          <strong className="text-foreground">Create lab</strong> — it uses{' '}
+          <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/labs</code> and may work if the problem was
+          transient.
+        </p>
+        <button
+          type="button"
+          className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          disabled={createLabMut.isPending}
+          onClick={() => createLabMut.mutate()}
+        >
+          {createLabMut.isPending ? 'Creating…' : 'Create lab'}
+        </button>
+        {createLabMut.isError && (
+          <p className="mt-2 text-sm text-destructive">{(createLabMut.error as Error).message}</p>
+        )}
       </section>
     );
   }

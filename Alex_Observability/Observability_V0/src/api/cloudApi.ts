@@ -22,7 +22,7 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const msg = e instanceof Error ? e.message : String(e);
     if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
       throw new Error(
-        `Cannot reach the API (${url}). Usual causes: (1) CORS — on the API set CORS_ORIGINS to this site’s origin (e.g. https://opentrons-fleet-manager.vercel.app); (2) wrong VITE_API_URL at build time; (3) API offline or blocked.`,
+        `Request failed (${url}). "Failed to fetch" usually means the browser blocked the response (fix CORS_ORIGINS on the API to this site’s origin, redeploy), bad VITE_API_URL (rebuild frontend), or the API is unreachable. If you also see HTTP 500 in the Network tab, fix the server error in API logs — CORS must still allow this origin for the app to read the response.`,
       );
     }
     throw e;

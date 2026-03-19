@@ -20,4 +20,4 @@
 
 **Adding a new robot endpoint:** Add a method to `BaseRobot` (and optional scheme/port args), then add a route with the same try/except + `robot_http_error` pattern.
 
-**Run:** `uvicorn demo_api:app --reload` from this directory. Cloud: set `DATABASE_URL`, run migrations through **`002`**, then use seed script or API to create labs/tokens; owners set **robot poll targets** via PUT or the Fleet Manager UI.
+**Run:** `uvicorn demo_api:app --reload` from this directory. Cloud: set `DATABASE_URL`, run `alembic upgrade head` (migrations through **`002`**), then use the **Fleet Manager UI** (recommended first-time flow: sign up → create lab → generate agent token from **Relay agent credentials** on the dashboard → set robot IPs in **Robot addresses (relay agent)**) or the API directly to create labs/tokens; owners set **robot poll targets** via PUT or the Fleet Manager UI.
