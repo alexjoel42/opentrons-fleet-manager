@@ -532,12 +532,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+def _normalize_cors_origin(origin: str) -> str:
+    """Strip whitespace and trailing slashes so env matches browser `Origin` (no path)."""
+    o = origin.strip()
+    while o.endswith("/"):
+        o = o[:-1].rstrip()
+    return o
+
+
 def _cors_allow_origins() -> list[str]:
     """Comma-separated `CORS_ORIGINS` env (e.g. https://app.vercel.app); default `*` for dev."""
     raw = (os.environ.get("CORS_ORIGINS") or "").strip()
     if not raw:
         return ["*"]
-    out = [o.strip() for o in raw.split(",") if o.strip()]
+    out = [_normalize_cors_origin(o) for o in raw.split(",") if o.strip()]
     if not out:
         _log.warning(
             "CORS_ORIGINS is set but parses to no origins; falling back to '*' (fix the env value)"

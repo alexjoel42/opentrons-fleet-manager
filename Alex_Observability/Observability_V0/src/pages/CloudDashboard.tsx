@@ -48,6 +48,10 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
   );
 }
 
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function CloudDashboard() {
   const { token } = useAuth();
   const labsQuery = useQuery({
@@ -61,38 +65,37 @@ export function CloudDashboard() {
     enabled: !!token,
   });
 
-  const isLoading = labsQuery.isLoading || robotsQuery.isLoading;
-  const loadError = (() => {
-    const a = labsQuery.error;
-    const b = robotsQuery.error;
-    if (a) return a instanceof Error ? a.message : String(a);
-    if (b) return b instanceof Error ? b.message : String(b);
-    return null;
-  })();
+  const labsError = labsQuery.error ? errMessage(labsQuery.error) : null;
+  const robotsError = robotsQuery.error ? errMessage(robotsQuery.error) : null;
   const labs = labsQuery.data;
   const robots = robotsQuery.data;
 
-  if (isLoading) {
+  if (labsQuery.isLoading && !labsQuery.isError) {
     return (
       <div className="py-12 text-center">
-        <p className="text-muted-foreground">Loading labs and robots…</p>
+        <p className="text-muted-foreground">Loading labs…</p>
       </div>
     );
   }
 
-  if (loadError) {
+  if (labsError) {
     return (
       <div className="rounded-xl border border-error/40 bg-error/5 px-6 py-8">
-        <p className="font-medium text-error">Could not load cloud data</p>
-        <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+        <p className="font-medium text-error">Could not load labs</p>
+        <p className="mt-2 text-sm text-muted-foreground">{labsError}</p>
         <p className="mt-4 text-sm text-muted-foreground">
-          If you see a CORS message in the browser console, set <code className="text-foreground">CORS_ORIGINS</code> on
-          the API to your app origin (e.g. <code className="text-foreground">https://opentrons-fleet-manager.vercel.app</code>
-          ). 500 errors usually mean a database or server issue — check API logs.
+          If the console shows a CORS error, set <code className="text-foreground">CORS_ORIGINS</code> on the API to
+          this site’s origin (scheme + host, no path) — e.g. <code className="text-foreground">https://your-app.vercel.app</code>.
+          Add Vercel preview URLs separately if you use them.
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          For HTTP 5xx, check the API host logs and <code className="text-foreground">DATABASE_URL</code> / migrations.
         </p>
       </div>
     );
   }
+
+  const robotsLoading = robotsQuery.isLoading && !robotsQuery.isError;
 
   return (
     <div>
@@ -109,6 +112,16 @@ export function CloudDashboard() {
         </p>
       </div>
 
+      {robotsError ? (
+        <div
+          className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm text-foreground"
+          role="status"
+        >
+          <p className="font-medium">Could not load robot list</p>
+          <p className="mt-1 text-muted-foreground">{robotsError}</p>
+        </div>
+      ) : null}
+
       {token ? <CloudAgentCredentials token={token} /> : null}
       {token ? <CloudRobotPollTargets token={token} /> : null}
 
@@ -118,7 +131,11 @@ export function CloudDashboard() {
         </p>
       )}
 
-      {robots && robots.length === 0 ? (
+      {robotsLoading ? (
+        <p className="rounded-xl border border-border bg-muted/30 px-6 py-8 text-center text-muted-foreground">
+          Loading robots…
+        </p>
+      ) : robotsError ? null : robots && robots.length === 0 ? (
         <p className="rounded-xl border border-border bg-muted/30 px-6 py-8 text-center text-muted-foreground">
           No robots yet. Run the relay agent in your lab to see robots here.
         </p>

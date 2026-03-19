@@ -1,7 +1,33 @@
 /**
  * Cloud API: labs, cloud robots, auth. Requires JWT when VITE_USE_CLOUD=true.
  */
-const BASE = (import.meta.env.VITE_API_URL as string) ?? '';
+const RAW_BASE = (import.meta.env.VITE_API_URL as string) ?? '';
+const BASE = RAW_BASE.replace(/\/$/, '');
+
+function apiUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  if (!BASE) {
+    throw new Error(
+      'VITE_API_URL was not set when this app was built. In Vercel (or .env), set it to your API base URL with no trailing slash (e.g. https://opentrons-fleet-manager.onrender.com), then redeploy the frontend.',
+    );
+  }
+  return `${BASE}${p}`;
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const url = apiUrl(path);
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
+      throw new Error(
+        `Cannot reach the API (${url}). Usual causes: (1) CORS — on the API set CORS_ORIGINS to this site’s origin (e.g. https://opentrons-fleet-manager.vercel.app); (2) wrong VITE_API_URL at build time; (3) API offline or blocked.`,
+      );
+    }
+    throw e;
+  }
+}
 
 function authHeaders(token: string | null): HeadersInit {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -10,7 +36,7 @@ function authHeaders(token: string | null): HeadersInit {
 }
 
 export async function login(email: string, password: string): Promise<{ access_token: string }> {
-  const res = await fetch(`${BASE}/api/auth/login`, {
+  const res = await apiFetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -21,7 +47,7 @@ export async function login(email: string, password: string): Promise<{ access_t
 }
 
 export async function signup(email: string, password: string): Promise<{ access_token: string }> {
-  const res = await fetch(`${BASE}/api/auth/signup`, {
+  const res = await apiFetch('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -38,14 +64,14 @@ export interface LabSummary {
 }
 
 export async function fetchLabs(token: string): Promise<LabSummary[]> {
-  const res = await fetch(`${BASE}/api/labs`, { headers: authHeaders(token) });
+  const res = await apiFetch('/api/labs', { headers: authHeaders(token) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to load labs');
   return Array.isArray(data) ? data : [];
 }
 
 export async function createLab(token: string, name?: string): Promise<LabSummary> {
-  const res = await fetch(`${BASE}/api/labs`, {
+  const res = await apiFetch('/api/labs', {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify({ name: name?.trim() || 'My lab' }),
@@ -61,7 +87,7 @@ export async function createLabAgentToken(
   labId: string,
   options?: { label?: string },
 ): Promise<{ token: string; lab_id: string }> {
-  const res = await fetch(`${BASE}/api/labs/${encodeURIComponent(labId)}/tokens`, {
+  const res = await apiFetch(`/api/labs/${encodeURIComponent(labId)}/tokens`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify({ label: options?.label?.trim() || undefined }),
@@ -73,7 +99,7 @@ export async function createLabAgentToken(
 
 /** Public API base URL (from build); relay agent `backend_url` / `BACKEND_URL` should match this. */
 export function getCloudApiBaseUrl(): string {
-  return (import.meta.env.VITE_API_URL as string) || '';
+  return BASE;
 }
 
 export interface CloudRobotSummary {
@@ -96,7 +122,7 @@ export interface RobotPollTarget {
 }
 
 export async function fetchRobotPollTargets(token: string, labId: string): Promise<RobotPollTarget[]> {
-  const res = await fetch(`${BASE}/api/labs/${encodeURIComponent(labId)}/robot-poll-targets`, {
+  const res = await apiFetch(`/api/labs/${encodeURIComponent(labId)}/robot-poll-targets`, {
     headers: authHeaders(token),
   });
   const data = await res.json().catch(() => ({}));
@@ -111,7 +137,7 @@ export async function saveRobotPollTargets(
   labId: string,
   robots: RobotPollTarget[],
 ): Promise<RobotPollTarget[]> {
-  const res = await fetch(`${BASE}/api/labs/${encodeURIComponent(labId)}/robot-poll-targets`, {
+  const res = await apiFetch(`/api/labs/${encodeURIComponent(labId)}/robot-poll-targets`, {
     method: 'PUT',
     headers: authHeaders(token),
     body: JSON.stringify({ robots }),
@@ -123,8 +149,10 @@ export async function saveRobotPollTargets(
 }
 
 export async function fetchCloudRobots(token: string, labId?: string): Promise<CloudRobotSummary[]> {
-  const url = labId ? `${BASE}/api/cloud/robots?lab_id=${encodeURIComponent(labId)}` : `${BASE}/api/cloud/robots`;
-  const res = await fetch(url, { headers: authHeaders(token) });
+  const path = labId
+    ? `/api/cloud/robots?lab_id=${encodeURIComponent(labId)}`
+    : '/api/cloud/robots';
+  const res = await apiFetch(path, { headers: authHeaders(token) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to load robots');
   return Array.isArray(data) ? data : [];
@@ -135,7 +163,7 @@ export interface CloudRobotDetail extends CloudRobotSummary {
 }
 
 export async function fetchCloudRobot(token: string, robotId: string): Promise<CloudRobotDetail> {
-  const res = await fetch(`${BASE}/api/cloud/robots/${encodeURIComponent(robotId)}`, {
+  const res = await apiFetch(`/api/cloud/robots/${encodeURIComponent(robotId)}`, {
     headers: authHeaders(token),
   });
   const data = await res.json().catch(() => ({}));

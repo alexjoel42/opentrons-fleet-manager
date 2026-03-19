@@ -16,7 +16,7 @@ Deploy the FastAPI backend and React frontend to the cloud; run the relay agent 
 3. **Environment**:
    - `DATABASE_URL` – PostgreSQL connection string (required for cloud features).
    - `JWT_SECRET` – Secret for signing JWTs (set a strong value in production).
-   - `CORS_ORIGINS` – Comma-separated frontend origins (e.g. `https://your-app.vercel.app`). If unset, the API allows `*` (fine for dev; set this in production).
+   - `CORS_ORIGINS` – Comma-separated frontend origins (e.g. `https://your-app.vercel.app`). Trailing slashes are normalized away at startup so `https://app.vercel.app/` still matches the browser’s `Origin`. If unset, the API allows `*` (fine for dev; set this in production).
    - `SQL_ECHO` – Set to `1` or `true` to log SQL (optional, for debugging).
 
 4. **Run**: Use a production ASGI server (e.g. Uvicorn with workers) behind a reverse proxy (HTTPS). Example:
@@ -30,6 +30,8 @@ Deploy the FastAPI backend and React frontend to the cloud; run the relay agent 
 ### Render (API) + Vercel (frontend)
 
 If the UI is on Vercel and the API on Render (or any split origin), the **browser** calls the API cross-origin. You **must** set `CORS_ORIGINS` on the backend to the exact Vercel origin (scheme + host, no path):
+
+- **Render deploys:** In the Render dashboard, ensure the web service is connected to your repo with **auto-deploy** enabled for the branch you push to, or run **Manual Deploy** after changing code or env vars. Otherwise the live URL can stay on an old build until something triggers a redeploy.
 
 - Example: `CORS_ORIGINS=https://opentrons-fleet-manager.vercel.app`
 - For preview deployments, add comma-separated origins: `https://opentrons-fleet-manager.vercel.app,https://your-app-git-main-org.vercel.app`
