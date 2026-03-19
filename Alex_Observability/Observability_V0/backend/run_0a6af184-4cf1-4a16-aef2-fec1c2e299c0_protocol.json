@@ -1,0 +1,168 @@
+{
+  "runId": "0a6af184-4cf1-4a16-aef2-fec1c2e299c0",
+  "run": {
+    "id": "0a6af184-4cf1-4a16-aef2-fec1c2e299c0",
+    "ok": true,
+    "createdAt": "2026-03-03T16:37:55.256674Z",
+    "status": "succeeded",
+    "current": false,
+    "actions": [
+      {
+        "id": "320bb38d-9c9d-4589-83ed-223ecaa606c5",
+        "createdAt": "2026-03-03T16:38:03.818144Z",
+        "actionType": "play"
+      }
+    ],
+    "errors": [],
+    "hasEverEnteredErrorRecovery": false,
+    "pipettes": [],
+    "modules": [],
+    "labware": [],
+    "liquids": [],
+    "liquidClasses": [],
+    "labwareOffsets": [],
+    "runTimeParameters": [],
+    "outputFileIds": [],
+    "protocolId": "114e30e6-6ea9-4612-adab-7cd7cc1b56cf",
+    "completedAt": "2026-03-03T16:38:13.344165Z",
+    "startedAt": "2026-03-03T16:38:03.951448Z",
+    "cameraSettings": {
+      "cameraEnabled": false,
+      "liveStreamEnabled": false,
+      "errorRecoveryCameraEnabled": false
+    }
+  },
+  "protocolId": "114e30e6-6ea9-4612-adab-7cd7cc1b56cf",
+  "protocol": {
+    "id": "114e30e6-6ea9-4612-adab-7cd7cc1b56cf",
+    "createdAt": "2026-03-03T16:37:54.006165Z",
+    "files": [
+      {
+        "name": "rando.py",
+        "role": "main"
+      },
+      {
+        "name": "Eppendorf Mag_Deck 96 Well Plate 1000 \u00b5L.json",
+        "role": "labware"
+      },
+      {
+        "name": "thermo_96_tuberack_1500ul_NEW.json",
+        "role": "labware"
+      },
+      {
+        "name": "Millipore Vacuum Manifold Base.json",
+        "role": "labware"
+      },
+      {
+        "name": "stackable_96_deepwell_v_8_2.json",
+        "role": "labware"
+      },
+      {
+        "name": "Superplate 96 Aluminum Block 200 \u00b5L.json",
+        "role": "labware"
+      },
+      {
+        "name": "alpaqua_magnet_384.json",
+        "role": "labware"
+      },
+      {
+        "name": "abgene_96_deep_wellplate_800ul.json",
+        "role": "labware"
+      },
+      {
+        "name": "greiner_384_wellplate_240ul_deep.json",
+        "role": "labware"
+      },
+      {
+        "name": "CoolRack XT with Corning Tubes.json",
+        "role": "labware"
+      },
+      {
+        "name": "cpx_4_tuberack_100ul.json",
+        "role": "labware"
+      },
+      {
+        "name": "sep_pak_c18_elution_plate.json",
+        "role": "labware"
+      },
+      {
+        "name": "eppendorf_96_wellplate_150ul (1)1.json",
+        "role": "labware"
+      },
+      {
+        "name": "Greiner 96 Well Flat Bottom Plate.json",
+        "role": "labware"
+      },
+      {
+        "name": "eppendorf_96_wellplate_150ul (1).json",
+        "role": "labware"
+      },
+      {
+        "name": "affinsep attractspe disks c18 96 wellplate.json",
+        "role": "labware"
+      },
+      {
+        "name": "Hs_kingfisher 96 Well Plate 2000 \u00b5L.json",
+        "role": "labware"
+      },
+      {
+        "name": "vwrplateappliedbiosystembase_96_wellplate_200ul.json",
+        "role": "labware"
+      },
+      {
+        "name": "standard pcr collection plate.json",
+        "role": "labware"
+      },
+      {
+        "name": "beckman_4_reservoir_38ml.json",
+        "role": "labware"
+      },
+      {
+        "name": "Millipore Vacuum Manifold Holder.json",
+        "role": "labware"
+      },
+      {
+        "name": "PlateOne 96 Well Plate 2000 \u00b5L.json",
+        "role": "labware"
+      },
+      {
+        "name": "Millipore Vacuum Manifold Collar (Standard) (1).json",
+        "role": "labware"
+      },
+      {
+        "name": "Thermo Semi-Skirt on Aluminum Block.json",
+        "role": "labware"
+      },
+      {
+        "name": "NEST 96 Deep Well Plate 2mL.json",
+        "role": "labware"
+      },
+      {
+        "name": "Millipore Vacuum Manifold Collar (Tall).json",
+        "role": "labware"
+      },
+      {
+        "name": "Reg_kingfisher 96 Well Plate 2000 \u00b5L.json",
+        "role": "labware"
+      }
+    ],
+    "protocolType": "python",
+    "robotType": "OT-3 Standard",
+    "metadata": {},
+    "analyses": [],
+    "analysisSummaries": [
+      {
+        "id": "b029cde4-6275-4816-956d-8bbb6a114c25",
+        "status": "completed"
+      },
+      {
+        "id": "d8b90099-28f6-49f4-ba2a-79b343b9752e",
+        "status": "completed"
+      }
+    ],
+    "key": "c1742b63-4759-46cc-bbe2-62c13b0af013",
+    "protocolKind": "standard"
+  },
+  "protocolFileName": "rando.py",
+  "protocolFileContent": null
+}

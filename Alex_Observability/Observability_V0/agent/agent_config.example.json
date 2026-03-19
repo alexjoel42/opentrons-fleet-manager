@@ -1,0 +1,11 @@
+{
+  "lab_id": "YOUR_LAB_ID",
+  "agent_token": "YOUR_AGENT_TOKEN",
+  "backend_url": "https://your-observability-api.com",
+  "robot_poll_interval_seconds": 5,
+  "robots": [
+    { "ip": "198.51.100.73", "scheme": "https", "port": 31950 },
+    { "ip": "203.0.113.198", "scheme": "https", "port": 31950 },
+    { "ip": "localhost", "scheme": "http", "port": 31950 }
+  ]
+}

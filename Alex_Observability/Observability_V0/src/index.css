@@ -1,0 +1,448 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Design system: Opentrons Fleet × Helix-style
+   - Primary #006CFA (links, CTAs, active states)
+   - Text #16212D / #4A4C4E / #737578
+   - Public Sans (UI) + Calistoga (display) + JetBrains Mono (labels)
+   ========================================================================== */
+
+@theme {
+  /* Colors — Helix-style, bolder */
+  --color-background: #fafafa;
+  --color-surface: #f3f3f3;
+  --color-foreground: #16212d;
+  --color-muted: #f3f3f3;
+  --color-muted-foreground: #4a4c4e;
+  --color-muted-tertiary: #737578;
+  --color-accent: #006cfa;
+  --color-accent-secondary: #4d8aff;
+  --color-accent-foreground: #ffffff;
+  --color-border: #e9e9e9;
+  --color-border-strong: #16212d;
+  --color-card: #ffffff;
+  --color-ring: #006cfa;
+  /* Success / OK (Helix chip: C4F6E0 / 03683E) */
+  --color-ok: #0d9488;
+  --color-ok-hover: #0f766e;
+  --color-success: #03683e;
+  --color-success-bg: #c4f6e0;
+  /* Tag/pill background from spec */
+  --color-tag-bg: rgba(22, 33, 45, 0.2);
+  /* Semantic */
+  --color-error: #dc2626;
+  --color-error-muted: #fef2f2;
+  --color-success-muted: #f0fdf4;
+  /* Fleet card accents (per robot/run status) */
+  --color-fleet-idle-border: #0d9488;
+  --color-fleet-idle-bg: rgba(13, 148, 136, 0.06);
+  --color-fleet-running-border: #059669;
+  --color-fleet-running-bg: rgba(5, 150, 105, 0.08);
+  --color-fleet-paused-border: #d97706;
+  --color-fleet-paused-bg: rgba(217, 119, 6, 0.1);
+  --color-fleet-failed-border: #dc2626;
+  --color-fleet-failed-bg: rgba(220, 38, 38, 0.08);
+  --color-fleet-recovery-border: #7c3aed;
+  --color-fleet-recovery-bg: rgba(124, 58, 237, 0.08);
+  --color-fleet-succeeded-border: #16a34a;
+  --color-fleet-succeeded-bg: rgba(22, 163, 74, 0.08);
+  --color-fleet-stopped-border: #64748b;
+  --color-fleet-stopped-bg: rgba(100, 116, 139, 0.1);
+  --color-fleet-loading-border: #94a3b8;
+  --color-fleet-loading-bg: rgba(148, 163, 184, 0.12);
+  --color-fleet-error-border: #ea580c;
+  --color-fleet-error-bg: rgba(234, 88, 12, 0.08);
+
+  /* Typography — Public Sans for UI (Helix) */
+  --font-display: "Calistoga", Georgia, serif;
+  --font-sans: "Public Sans", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1);
+  --shadow-accent: 0 4px 14px rgba(0, 108, 250, 0.25);
+  --shadow-accent-lg: 0 8px 24px rgba(0, 108, 250, 0.35);
+
+  /* Radius — 8px cards (Helix) */
+  --radius-card: 8px;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+}
+
+/* Base */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    color: var(--color-foreground);
+    background-color: var(--color-background);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    line-height: 1.625;
+  }
+
+  a {
+    font-weight: 500;
+    color: var(--color-accent);
+    text-decoration: inherit;
+    transition: color 0.2s ease;
+  }
+  a:hover {
+    color: var(--color-accent-secondary);
+  }
+
+  /* Focus ring for accessibility */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  /* Respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Gradient text utility (design system signature) */
+.gradient-text {
+  background: linear-gradient(to right, var(--color-accent), var(--color-accent-secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Gradient underline for headlines */
+.gradient-underline {
+  position: absolute;
+  bottom: -0.25rem;
+  left: 0;
+  height: 0.75rem;
+  width: 100%;
+  border-radius: 0.125rem;
+  background: linear-gradient(to right, rgba(0, 82, 255, 0.15), rgba(77, 124, 255, 0.1));
+}
+
+/* Section label badge (design system pattern) */
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 108, 250, 0.4);
+  background: rgba(0, 108, 250, 0.12);
+  padding: 0.5rem 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.section-label-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-accent);
+}
+
+/* Helix-style success chip (bg #C4F6E0, text #03683E) */
+.chip-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.375rem;
+  border-radius: 200px;
+  background: var(--color-success-bg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1rem;
+  color: var(--color-success);
+}
+
+/* Fleet robot cards: left border + tint follow run/health status */
+.robot-fleet-card[data-fleet-status="idle"] {
+  border-left-color: var(--color-fleet-idle-border);
+  background-color: var(--color-fleet-idle-bg);
+}
+.robot-fleet-card[data-fleet-status="running"] {
+  border-left-color: var(--color-fleet-running-border);
+  background-color: var(--color-fleet-running-bg);
+}
+.robot-fleet-card[data-fleet-status="paused"] {
+  border-left-color: var(--color-fleet-paused-border);
+  background-color: var(--color-fleet-paused-bg);
+}
+.robot-fleet-card[data-fleet-status="failed"] {
+  border-left-color: var(--color-fleet-failed-border);
+  background-color: var(--color-fleet-failed-bg);
+}
+.robot-fleet-card[data-fleet-status="awaiting-recovery"] {
+  border-left-color: var(--color-fleet-recovery-border);
+  background-color: var(--color-fleet-recovery-bg);
+}
+.robot-fleet-card[data-fleet-status="succeeded"] {
+  border-left-color: var(--color-fleet-succeeded-border);
+  background-color: var(--color-fleet-succeeded-bg);
+}
+.robot-fleet-card[data-fleet-status="stopped"] {
+  border-left-color: var(--color-fleet-stopped-border);
+  background-color: var(--color-fleet-stopped-bg);
+}
+.robot-fleet-card[data-fleet-status="loading"] {
+  border-left-color: var(--color-fleet-loading-border);
+  background-color: var(--color-fleet-loading-bg);
+}
+.robot-fleet-card[data-fleet-status="error"] {
+  border-left-color: var(--color-fleet-error-border);
+  background-color: var(--color-fleet-error-bg);
+}
+.robot-fleet-card[data-fleet-status="unreachable"] {
+  border-left-color: var(--color-error);
+  background-color: var(--color-error-muted);
+}
+
+/* Header legend: color dots (match fleet cards) */
+.fleet-legend-swatch {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+}
+.fleet-legend-swatch[data-fleet-status="idle"] {
+  background: var(--color-fleet-idle-border);
+}
+.fleet-legend-swatch[data-fleet-status="running"] {
+  background: var(--color-fleet-running-border);
+}
+.fleet-legend-swatch[data-fleet-status="paused"] {
+  background: var(--color-fleet-paused-border);
+}
+.fleet-legend-swatch[data-fleet-status="failed"] {
+  background: var(--color-fleet-failed-border);
+}
+.fleet-legend-swatch[data-fleet-status="awaiting-recovery"] {
+  background: var(--color-fleet-recovery-border);
+}
+.fleet-legend-swatch[data-fleet-status="succeeded"] {
+  background: var(--color-fleet-succeeded-border);
+}
+.fleet-legend-swatch[data-fleet-status="stopped"] {
+  background: var(--color-fleet-stopped-border);
+}
+.fleet-legend-swatch[data-fleet-status="loading"] {
+  background: var(--color-fleet-loading-border);
+}
+.fleet-legend-swatch[data-fleet-status="error"] {
+  background: var(--color-fleet-error-border);
+}
+.fleet-legend-swatch[data-fleet-status="unreachable"] {
+  background: var(--color-error);
+}
+
+/* Dashboard summary table (same tint + left accent as cards) */
+.fleet-summary-table tbody tr.fleet-summary-row td {
+  background-color: var(--color-card);
+}
+.fleet-summary-row[data-fleet-status="idle"] td {
+  background-color: var(--color-fleet-idle-bg);
+}
+.fleet-summary-row[data-fleet-status="running"] td {
+  background-color: var(--color-fleet-running-bg);
+}
+.fleet-summary-row[data-fleet-status="paused"] td {
+  background-color: var(--color-fleet-paused-bg);
+}
+.fleet-summary-row[data-fleet-status="failed"] td {
+  background-color: var(--color-fleet-failed-bg);
+}
+.fleet-summary-row[data-fleet-status="awaiting-recovery"] td {
+  background-color: var(--color-fleet-recovery-bg);
+}
+.fleet-summary-row[data-fleet-status="succeeded"] td {
+  background-color: var(--color-fleet-succeeded-bg);
+}
+.fleet-summary-row[data-fleet-status="stopped"] td {
+  background-color: var(--color-fleet-stopped-bg);
+}
+.fleet-summary-row[data-fleet-status="loading"] td {
+  background-color: var(--color-fleet-loading-bg);
+}
+.fleet-summary-row[data-fleet-status="error"] td {
+  background-color: var(--color-fleet-error-bg);
+}
+.fleet-summary-row[data-fleet-status="unreachable"] td {
+  background-color: var(--color-error-muted);
+}
+.fleet-summary-row td:first-child {
+  border-left: 4px solid transparent;
+}
+.fleet-summary-row[data-fleet-status="idle"] td:first-child {
+  border-left-color: var(--color-fleet-idle-border);
+}
+.fleet-summary-row[data-fleet-status="running"] td:first-child {
+  border-left-color: var(--color-fleet-running-border);
+}
+.fleet-summary-row[data-fleet-status="paused"] td:first-child {
+  border-left-color: var(--color-fleet-paused-border);
+}
+.fleet-summary-row[data-fleet-status="failed"] td:first-child {
+  border-left-color: var(--color-fleet-failed-border);
+}
+.fleet-summary-row[data-fleet-status="awaiting-recovery"] td:first-child {
+  border-left-color: var(--color-fleet-recovery-border);
+}
+.fleet-summary-row[data-fleet-status="succeeded"] td:first-child {
+  border-left-color: var(--color-fleet-succeeded-border);
+}
+.fleet-summary-row[data-fleet-status="stopped"] td:first-child {
+  border-left-color: var(--color-fleet-stopped-border);
+}
+.fleet-summary-row[data-fleet-status="loading"] td:first-child {
+  border-left-color: var(--color-fleet-loading-border);
+}
+.fleet-summary-row[data-fleet-status="error"] td:first-child {
+  border-left-color: var(--color-fleet-error-border);
+}
+.fleet-summary-row[data-fleet-status="unreachable"] td:first-child {
+  border-left-color: var(--color-error);
+}
+
+/* Status pill on fleet cards */
+.fleet-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 200px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1rem;
+}
+.fleet-status-pill[data-fleet-status="idle"] {
+  background: rgba(13, 148, 136, 0.18);
+  color: #0f766e;
+}
+.fleet-status-pill[data-fleet-status="running"] {
+  background: rgba(5, 150, 105, 0.18);
+  color: #047857;
+}
+.fleet-status-pill[data-fleet-status="paused"] {
+  background: rgba(217, 119, 6, 0.2);
+  color: #b45309;
+}
+.fleet-status-pill[data-fleet-status="failed"],
+.fleet-status-pill[data-fleet-status="unreachable"] {
+  background: rgba(220, 38, 38, 0.15);
+  color: #b91c1c;
+}
+.fleet-status-pill[data-fleet-status="awaiting-recovery"] {
+  background: rgba(124, 58, 237, 0.15);
+  color: #6d28d9;
+}
+.fleet-status-pill[data-fleet-status="succeeded"] {
+  background: rgba(22, 163, 74, 0.18);
+  color: #15803d;
+}
+.fleet-status-pill[data-fleet-status="stopped"] {
+  background: rgba(100, 116, 139, 0.2);
+  color: #475569;
+}
+.fleet-status-pill[data-fleet-status="loading"] {
+  background: rgba(148, 163, 184, 0.25);
+  color: #475569;
+}
+.fleet-status-pill[data-fleet-status="error"] {
+  background: rgba(234, 88, 12, 0.18);
+  color: #c2410c;
+}
+
+.dark .fleet-status-pill[data-fleet-status="idle"] {
+  color: #5eead4;
+  background: rgba(13, 148, 136, 0.25);
+}
+.dark .fleet-status-pill[data-fleet-status="running"] {
+  color: #6ee7b7;
+  background: rgba(5, 150, 105, 0.25);
+}
+.dark .fleet-status-pill[data-fleet-status="paused"] {
+  color: #fcd34d;
+  background: rgba(217, 119, 6, 0.2);
+}
+.dark .fleet-status-pill[data-fleet-status="failed"],
+.dark .fleet-status-pill[data-fleet-status="unreachable"] {
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.2);
+}
+.dark .fleet-status-pill[data-fleet-status="awaiting-recovery"] {
+  color: #c4b5fd;
+  background: rgba(124, 58, 237, 0.25);
+}
+.dark .fleet-status-pill[data-fleet-status="succeeded"] {
+  color: #86efac;
+  background: rgba(22, 163, 74, 0.22);
+}
+.dark .fleet-status-pill[data-fleet-status="stopped"] {
+  color: #cbd5e1;
+  background: rgba(100, 116, 139, 0.25);
+}
+.dark .fleet-status-pill[data-fleet-status="loading"] {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.2);
+}
+.dark .fleet-status-pill[data-fleet-status="error"] {
+  color: #fdba74;
+  background: rgba(234, 88, 12, 0.22);
+}
+
+/* Helix-style tag (rgba(22,33,45,0.2)) */
+.chip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  background: var(--color-tag-bg);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  color: var(--color-foreground);
+}
+
+/* Data/code blocks — high contrast, accessible */
+.data-block {
+  margin: 0;
+  padding: 1rem;
+  border-radius: var(--radius-lg);
+  overflow: auto;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  background: var(--color-muted);
+  color: var(--color-foreground);
+  border: 1px solid var(--color-border);
+  min-height: 2.5em;
+}
+.data-block:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Main content area background (Helix "meat" #F3F3F3) */
+.bg-surface {
+  background-color: var(--color-surface);
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}

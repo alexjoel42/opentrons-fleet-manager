@@ -1,0 +1,7 @@
+/* App-level overrides only. Main styles live in index.css + Tailwind. */
+
+/* Robot card link: remove default link styling so the card looks like a card */
+.robot-card-link {
+  text-decoration: none;
+  color: inherit;
+}

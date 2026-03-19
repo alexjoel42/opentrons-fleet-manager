@@ -1,0 +1,95 @@
+/**
+ * Cloud API: labs, cloud robots, auth. Requires JWT when VITE_USE_CLOUD=true.
+ */
+const BASE = (import.meta.env.VITE_API_URL as string) ?? '';
+
+function authHeaders(token: string | null): HeadersInit {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+}
+
+export async function login(email: string, password: string): Promise<{ access_token: string }> {
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Login failed');
+  return data as { access_token: string };
+}
+
+export async function signup(email: string, password: string): Promise<{ access_token: string }> {
+  const res = await fetch(`${BASE}/api/auth/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Signup failed');
+  return data as { access_token: string };
+}
+
+export interface LabSummary {
+  id: string;
+  name: string;
+  created_at: string | null;
+}
+
+export async function fetchLabs(token: string): Promise<LabSummary[]> {
+  const res = await fetch(`${BASE}/api/labs`, { headers: authHeaders(token) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to load labs');
+  return Array.isArray(data) ? data : [];
+}
+
+export interface CloudRobotSummary {
+  id: string;
+  lab_id: string;
+  name: string | null;
+  robot_serial: string | null;
+  ip_last_seen: string | null;
+  last_seen_at: string | null;
+  health: Record<string, unknown> | null;
+  runs: unknown;
+  logs: string | null;
+}
+
+export async function fetchCloudRobots(token: string, labId?: string): Promise<CloudRobotSummary[]> {
+  const url = labId ? `${BASE}/api/cloud/robots?lab_id=${encodeURIComponent(labId)}` : `${BASE}/api/cloud/robots`;
+  const res = await fetch(url, { headers: authHeaders(token) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to load robots');
+  return Array.isArray(data) ? data : [];
+}
+
+export interface CloudRobotDetail extends CloudRobotSummary {
+  created_at: string | null;
+}
+
+export async function fetchCloudRobot(token: string, robotId: string): Promise<CloudRobotDetail> {
+  const res = await fetch(`${BASE}/api/cloud/robots/${encodeURIComponent(robotId)}`, {
+    headers: authHeaders(token),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to load robot');
+  return data as CloudRobotDetail;
+}
+
+/** Seconds after which robot data is considered stale (configurable via env). */
+export const STALE_THRESHOLD_SECONDS = Number(import.meta.env.VITE_STALE_THRESHOLD_SECONDS) || 60;
+
+export function isStale(lastSeenAt: string | null | undefined): boolean {
+  if (!lastSeenAt) return true;
+  const t = new Date(lastSeenAt).getTime();
+  return (Date.now() - t) / 1000 > STALE_THRESHOLD_SECONDS;
+}
+
+export function lastSeenLabel(lastSeenAt: string | null | undefined): string {
+  if (!lastSeenAt) return 'Never';
+  const sec = Math.floor((Date.now() - new Date(lastSeenAt).getTime()) / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  return `${Math.floor(sec / 3600)}h ago`;
+}

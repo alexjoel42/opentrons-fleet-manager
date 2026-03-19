@@ -1,0 +1,2 @@
+[console_scripts]
+observability-agent = run_agent:main

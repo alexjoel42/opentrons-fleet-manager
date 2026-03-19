@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""
+Local relay agent: polls Opentrons robot(s) on the lab network and POSTs telemetry to the cloud.
+Supports HTTP and HTTPS per robot (e.g. 198.51.100.73 and 203.0.113.198 over HTTPS, localhost over HTTP).
+
+Usage:
+  python run_agent.py --lab-id=LAB_ID --agent-token=TOKEN --backend-url=https://your-api.com
+  python run_agent.py --config=agent_config.json
+
+Example agent_config.json:
+  {
+    "lab_id": "abc123",
+    "agent_token": "your-token",
+    "backend_url": "https://your-api.com",
+    "robot_poll_interval_seconds": 5,
+    "robots": [
+      { "ip": "198.51.100.73", "scheme": "https", "port": 31950 },
+      { "ip": "203.0.113.198", "scheme": "https", "port": 31950 },
+      { "ip": "localhost", "scheme": "http", "port": 31950 }
+    ]
+  }
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+
+import httpx
+
+# Default robots for periodic check-ins: two over HTTPS, localhost over HTTP
+DEFAULT_ROBOTS = [
+    {"ip": "198.51.100.73", "scheme": "https", "port": 31950},
+    {"ip": "203.0.113.198", "scheme": "https", "port": 31950},
+    {"ip": "localhost", "scheme": "http", "port": 31950},
+]
+
+ROBOT_TIMEOUT = 10.0
+BACKEND_TIMEOUT = 30.0
+MIN_BACKOFF = 5.0
+MAX_BACKOFF = 60.0
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("agent")
+
+
+def _url(ip: str, path: str, scheme: str = "http", port: int = 31950) -> str:
+    path = path.strip("/")
+    return f"{scheme}://{ip}:{port}/{path}"
+
+
+def fetch_robot_telemetry(
+    ip: str,
+    scheme: str = "http",
+    port: int = 31950,
+    timeout: float = ROBOT_TIMEOUT,
+) -> dict | None:
+    """Fetch health, runs, and logs from one robot. Returns dict for payload or None on failure."""
+    headers = {"Content-Type": "application/json", "Opentrons-Version": "*"}
+    out = {"ip": ip, "health": None, "runs": None, "logs": None, "serial": None}
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            # Health
+            r = client.get(_url(ip, "health", scheme, port), headers=headers)
+            if r.status_code == 200:
+                out["health"] = {
+                    "name": r.headers.get("name"),
+                    "date": r.headers.get("date"),
+                    "logs": r.headers.get("logs"),
+                    "serial_number": r.headers.get("serial_number"),
+                    "status": r.headers.get("status"),
+                    "health_data": r.headers.get("health_data"),
+                }
+                out["serial"] = r.headers.get("serial_number")
+            # Runs
+            r = client.get(_url(ip, "runs", scheme, port), headers=headers)
+            if r.status_code == 200:
+                try:
+                    out["runs"] = r.json()
+                except Exception:
+                    out["runs"] = {}
+            # Logs
+            r = client.get(_url(ip, "logs", scheme, port), headers=headers)
+            if r.status_code == 200:
+                out["logs"] = r.headers.get("logs") or ""
+    except Exception as e:
+        log.warning("Robot %s (%s): %s", ip, scheme, e)
+        return None
+    return out
+
+
+def build_telemetry_payload(robots_config: list, timeout: float = ROBOT_TIMEOUT) -> list:
+    """Build list of robot telemetry dicts for POST body."""
+    payload_robots = []
+    for r in robots_config:
+        if isinstance(r, str):
+            ip, scheme, port = r.strip(), "http", 31950
+        else:
+            ip = (r.get("ip") or "").strip()
+            scheme = (r.get("scheme") or "http").lower()
+            port = int(r.get("port") or 31950)
+        if not ip:
+            continue
+        data = fetch_robot_telemetry(ip, scheme=scheme, port=port, timeout=timeout)
+        if data is None:
+            continue
+        payload_robots.append({
+            "ip": ip,
+            "robot_id": data.get("serial"),
+            "serial": data.get("serial"),
+            "health": data.get("health"),
+            "runs": data.get("runs"),
+            "logs": data.get("logs"),
+        })
+    return payload_robots
+
+
+def post_telemetry(
+    backend_url: str,
+    agent_token: str,
+    lab_id: str,
+    robots: list,
+    timeout: float = BACKEND_TIMEOUT,
+) -> bool:
+    """POST telemetry to cloud. Returns True on success."""
+    url = f"{backend_url.rstrip('/')}/api/agent/telemetry"
+    headers = {
+        "Authorization": f"Bearer {agent_token}",
+        "Content-Type": "application/json",
+    }
+    body = {"lab_id": lab_id, "robots": robots}
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            r = client.post(url, json=body, headers=headers)
+            if r.status_code in (200, 201):
+                return True
+            log.error("Backend %s: %s %s", r.status_code, r.text[:200])
+            return False
+    except Exception as e:
+        log.error("Backend POST failed: %s", e)
+        return False
+
+
+def load_config(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("Config must be a JSON object")
+    robots = data.get("robots")
+    if robots is None:
+        robots = DEFAULT_ROBOTS
+    if not isinstance(robots, list):
+        robots = DEFAULT_ROBOTS
+    data["robots"] = robots
+    data.setdefault("robot_poll_interval_seconds", 5)
+    data.setdefault("backend_url", os.environ.get("BACKEND_URL", ""))
+    data.setdefault("lab_id", os.environ.get("LAB_ID", ""))
+    data.setdefault("agent_token", os.environ.get("AGENT_TOKEN", ""))
+    return data
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Opentrons observability relay agent")
+    ap.add_argument("--lab-id", default=os.environ.get("LAB_ID"), help="Lab ID")
+    ap.add_argument("--agent-token", default=os.environ.get("AGENT_TOKEN"), help="Agent token")
+    ap.add_argument("--backend-url", default=os.environ.get("BACKEND_URL"), help="Cloud backend URL")
+    ap.add_argument("--robot-ips", help="Comma-separated robot IPs (default: use config or 198.51.100.73,203.0.113.198,localhost)")
+    ap.add_argument("--config", help="Path to agent_config.json")
+    ap.add_argument("--interval", type=float, default=5, help="Poll interval in seconds")
+    ap.add_argument("--https-ips", help="Comma-separated IPs to use HTTPS (default: 198.51.100.73,203.0.113.198)")
+    args = ap.parse_args()
+
+    if args.config:
+        config = load_config(args.config)
+        lab_id = config.get("lab_id") or args.lab_id
+        agent_token = config.get("agent_token") or args.agent_token
+        backend_url = config.get("backend_url") or args.backend_url
+        robots_config = config.get("robots", DEFAULT_ROBOTS)
+        interval = float(config.get("robot_poll_interval_seconds", args.interval))
+    else:
+        lab_id = args.lab_id
+        agent_token = args.agent_token
+        backend_url = args.backend_url
+        interval = args.interval
+        if args.robot_ips:
+            ips = [s.strip() for s in args.robot_ips.split(",") if s.strip()]
+            https_ips = set()
+            if args.https_ips:
+                https_ips = {s.strip() for s in args.https_ips.split(",") if s.strip()}
+            else:
+                https_ips = {"198.51.100.73", "203.0.113.198"}
+            robots_config = [
+                {"ip": ip, "scheme": "https" if ip in https_ips else "http", "port": 31950}
+                for ip in ips
+            ]
+        else:
+            robots_config = DEFAULT_ROBOTS
+
+    if not lab_id or not agent_token or not backend_url:
+        log.error("Provide --lab-id, --agent-token, and --backend-url (or set LAB_ID, AGENT_TOKEN, BACKEND_URL)")
+        return 1
+
+    log.info("Lab %s; backend %s; robots %s; interval %.1fs", lab_id, backend_url, [r.get("ip") if isinstance(r, dict) else r for r in robots_config], interval)
+    backoff = MIN_BACKOFF
+
+    while True:
+        try:
+            robots_payload = build_telemetry_payload(robots_config)
+            if not robots_payload:
+                log.warning("No robot data collected this cycle")
+            else:
+                ok = post_telemetry(backend_url, agent_token, lab_id, robots_payload)
+                if ok:
+                    log.info("POST ok (%d robot(s))", len(robots_payload))
+                    backoff = MIN_BACKOFF
+                else:
+                    log.warning("POST failed; retry in %.0fs", backoff)
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, MAX_BACKOFF)
+                    continue
+        except KeyboardInterrupt:
+            log.info("Stopping")
+            break
+        except Exception as e:
+            log.exception("Cycle error: %s", e)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, MAX_BACKOFF)
+            continue
+        time.sleep(interval)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
