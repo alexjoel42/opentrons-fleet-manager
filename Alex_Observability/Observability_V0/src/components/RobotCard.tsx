@@ -61,7 +61,12 @@ export function RobotCardView({
   const runStatus = (currentRun?.status ?? '').toLowerCase();
   const isPaused = runStatus === 'paused';
 
-  const serial = healthData?.serial_number != null ? String(healthData.serial_number) : null;
+  const serial =
+    healthData?.serial_number != null
+      ? String(healthData.serial_number)
+      : healthData?.robot_serial != null
+        ? String(healthData.robot_serial)
+        : null;
 
   useEffect(() => {
     if (!currentRun?.id) {

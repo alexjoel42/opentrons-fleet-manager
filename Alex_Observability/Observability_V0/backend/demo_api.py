@@ -910,7 +910,44 @@ async def get_agent_robot_poll_targets(
     targets = lab.robot_poll_targets
     if targets is None:
         targets = []
+    else:
+        targets = _coerce_robot_poll_targets_response(targets)
     return {"lab_id": lab.id, "robots": targets}
+
+
+def _coerce_robot_poll_scheme_for_lan(ip: str, scheme: str) -> str:
+    """Opentrons LAN robots speak HTTP on 31950; stored ``https`` for private IPs is wrong."""
+    s = (scheme or "http").lower()
+    if s != "https":
+        return s
+    raw = (ip or "").strip()
+    low = raw.lower()
+    if low.endswith(".local"):
+        return "http"
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        return s
+    if addr.is_private or addr.is_loopback or addr.is_link_local:
+        return "http"
+    return s
+
+
+def _coerce_robot_poll_targets_response(targets: list[Any]) -> list[dict[str, Any]]:
+    """Return a new list with scheme corrected for LAN robots (does not mutate JSONB rows in place)."""
+    out: list[dict[str, Any]] = []
+    for item in targets:
+        if not isinstance(item, dict):
+            continue
+        ip = (item.get("ip") or "").strip()
+        scheme = _coerce_robot_poll_scheme_for_lan(ip, str(item.get("scheme") or "http"))
+        port = item.get("port", DEFAULT_PORT)
+        try:
+            port_int = int(port)
+        except (TypeError, ValueError):
+            port_int = DEFAULT_PORT
+        out.append({"ip": ip, "scheme": scheme, "port": port_int})
+    return out
 
 
 def _normalize_robot_poll_targets(raw: Any) -> list[dict[str, Any]]:
@@ -1076,6 +1113,8 @@ async def get_lab_robot_poll_targets(
     targets = lab.robot_poll_targets
     if targets is None:
         targets = []
+    else:
+        targets = _coerce_robot_poll_targets_response(targets)
     return {"robots": targets}
 
 
@@ -1096,6 +1135,7 @@ async def put_lab_robot_poll_targets(
     if raw is None:
         raise HTTPException(status_code=400, detail="missing robots")
     normalized = _normalize_robot_poll_targets(raw)
+    normalized = _coerce_robot_poll_targets_response(normalized)
     lab.robot_poll_targets = normalized
     await db.flush()
     return {"robots": normalized}

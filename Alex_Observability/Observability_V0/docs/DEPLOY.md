@@ -70,7 +70,7 @@ Without this, the browser shows **CORS** errors and the app cannot load labs or 
 4. On the lab machine, set **`LAB_ID`**, **`AGENT_TOKEN`**, and **`BACKEND_URL`** (same base URL as `VITE_API_URL`) and run the agent — **no JSON file required**:
    - **From repo:** `python agent/run_agent.py`
    - **From PyPI:** `observability-agent`
-   Optional: `ROBOT_POLL_INTERVAL_SECONDS` for poll interval. Advanced users can still use `--config=agent_config.json`; see [AGENT_SETUP.md](AGENT_SETUP.md).
+   Optional: `ROBOT_POLL_INTERVAL_SECONDS` (default **60** seconds per cycle to limit Render load). Advanced users can still use `--config=agent_config.json`; see [AGENT_SETUP.md](AGENT_SETUP.md).
 5. Refresh the dashboard; robots should appear with “Last updated X s ago”. If the agent stops, data will show as stale after the threshold (e.g. 60s).
 
 ## Backups and security

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
 import { useRobot, useRobotLogs, useRobotRuns } from '../hooks';
+import { UI_POLL_INTERVAL_MS } from '../lib/queryPollMs';
 import { formatPipettes, formatModules, orDash } from '../utils/robotFormat';
 import { fetchTroubleshootingZip, fetchRobotRun, fetchRunEndpointCheck, getRunDisplayName } from '../api/robotApi';
 import type { RunListItem } from '../api/robotApi';
@@ -40,7 +41,13 @@ export function RobotDetail() {
 
   const { health, modules, pipettes, isLoading, isError, error, refetch } = robot;
   const healthObj = health.data && typeof health.data === 'object' ? (health.data as Record<string, unknown>) : null;
-  const robotSerialDisplay = orDash(healthObj?.serial_number);
+  const serialRaw =
+    healthObj?.serial_number != null
+      ? healthObj.serial_number
+      : healthObj?.robot_serial != null
+        ? healthObj.robot_serial
+        : null;
+  const robotSerialDisplay = serialRaw != null && String(serialRaw).trim() ? String(serialRaw) : '—';
   const robotNameDisplay = orDash(healthObj?.name);
   const statusDisplay = orDash(healthObj?.status);
   const showSerialInTitle = robotSerialDisplay !== '—';
@@ -77,7 +84,7 @@ export function RobotDetail() {
       queryFn: () => fetchRunEndpointCheck(ip!, run.id),
       enabled: Boolean(ip && run.id),
       retry: false,
-      staleTime: 60_000,
+      staleTime: UI_POLL_INTERVAL_MS,
     })),
   });
   const runCheckById = runsList.reduce<Record<string, { available: boolean; loading: boolean }>>(

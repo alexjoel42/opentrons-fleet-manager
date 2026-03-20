@@ -4,46 +4,92 @@ import { useAuth } from '../lib/authContext';
 import { fetchCloudRobots, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
 import { CloudAgentCredentials } from '../components/CloudAgentCredentials';
 import { CloudRobotPollTargets } from '../components/CloudRobotPollTargets';
+import { UI_POLL_INTERVAL_MS } from '../lib/queryPollMs';
+import { FLEET_STATUS_LABELS, deriveRobotFleetVisualStatus } from '../utils/robotFleetStatus';
+import {
+  cloudRobotCardSubtitle,
+  cloudRobotCardTitle,
+  coerceRunsForFleetStatus,
+  telemetryLatestRunSummary,
+  telemetryStatus,
+} from '../utils/telemetryHealth';
 
 function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
   const stale = isStale(robot.last_seen_at);
   const label = lastSeenLabel(robot.last_seen_at);
-  const displayName = robot.name || robot.robot_serial || robot.ip_last_seen || robot.id;
+  const health = robot.health && typeof robot.health === 'object' ? robot.health : null;
+  const title = cloudRobotCardTitle({
+    id: robot.id,
+    name: robot.name,
+    robot_serial: robot.robot_serial,
+    ip_last_seen: robot.ip_last_seen,
+    health,
+  });
+  const subtitle = cloudRobotCardSubtitle(title, {
+    robot_serial: robot.robot_serial,
+    ip_last_seen: robot.ip_last_seen,
+    health,
+  });
+  const runsCoerced = coerceRunsForFleetStatus(robot.runs);
+  const visualStatus = deriveRobotFleetVisualStatus({
+    fleetError: null,
+    healthLoading: false,
+    healthError: false,
+    healthData: health,
+    runsData: runsCoerced ?? undefined,
+  });
+  const runLine = telemetryLatestRunSummary(robot.runs);
+  const healthStatusLine = telemetryStatus(health);
 
   return (
-    <Link
-      to={`/robot/cloud/${robot.id}`}
-      className={`block rounded-xl border p-5 shadow-md transition-all hover:shadow-lg ${
-        stale ? 'border-amber-500/50 bg-amber-500/5' : 'border-border bg-card'
-      }`}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-            {displayName}
-          </h2>
-          {(robot.robot_serial || robot.ip_last_seen) && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {[robot.robot_serial, robot.ip_last_seen].filter(Boolean).join(' · ')}
-            </p>
-          )}
+    <Link to={`/robot/cloud/${robot.id}`} className="robot-card-link group block">
+      <div
+        className={`robot-fleet-card relative overflow-hidden rounded-xl border border-border border-l-4 bg-card p-5 shadow-md transition-all duration-200 hover:shadow-lg dark:border-border ${
+          stale ? 'ring-1 ring-amber-500/40' : ''
+        }`}
+        data-fleet-status={visualStatus}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="font-display text-lg font-normal tracking-tight text-foreground">{title}</h2>
+            {subtitle ? (
+              <p className="mt-1 truncate text-sm text-muted-foreground" title={subtitle}>
+                {subtitle}
+              </p>
+            ) : null}
+          </div>
+          <div className="shrink-0 text-right text-sm">
+            <span className={stale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}>
+              Last updated {label}
+            </span>
+            {stale && (
+              <p className="mt-1 text-amber-600 dark:text-amber-400" role="status">
+                Robot data may be outdated
+              </p>
+            )}
+          </div>
         </div>
-        <div className="text-right text-sm">
-          <span className={stale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}>
-            Last updated {label}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span
+            className="fleet-status-pill"
+            data-fleet-status={visualStatus}
+            aria-label={`Status: ${FLEET_STATUS_LABELS[visualStatus]}`}
+          >
+            {FLEET_STATUS_LABELS[visualStatus]}
           </span>
-          {stale && (
-            <p className="mt-1 text-amber-600 dark:text-amber-400" role="status">
-              Robot data may be outdated
-            </p>
-          )}
+          {healthStatusLine ? (
+            <span className="text-xs text-muted-foreground">API: {healthStatusLine}</span>
+          ) : null}
         </div>
+        {runLine ? (
+          <p className="mt-2 text-sm text-foreground">
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Runs </span>
+            {runLine}
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">No run list in last telemetry.</p>
+        )}
       </div>
-      {robot.health?.status != null && robot.health.status !== '' ? (
-        <p className="mt-3 text-xs uppercase tracking-wider text-muted-foreground">
-          Status: {String(robot.health.status)}
-        </p>
-      ) : null}
     </Link>
   );
 }
@@ -58,6 +104,8 @@ export function CloudDashboard() {
     queryKey: ['cloud', 'robots', token],
     queryFn: () => fetchCloudRobots(token!),
     enabled: !!token,
+    staleTime: UI_POLL_INTERVAL_MS,
+    refetchInterval: (q) => (q.state.status === 'error' ? false : UI_POLL_INTERVAL_MS),
   });
 
   const robotsError = robotsQuery.error ? errMessage(robotsQuery.error) : null;
@@ -76,7 +124,10 @@ export function CloudDashboard() {
           Robot <span className="gradient-text">fleet</span>
         </h1>
         <p className="mt-2 text-muted-foreground">
-          Configure robot addresses below; the relay agent loads them from the cloud. Telemetry may be a few seconds old.
+          Configure robot addresses below; the relay agent loads them from the cloud. UI and agent default to about a
+          minute between updates to keep API usage low (override with{' '}
+          <code className="rounded bg-muted px-1 text-xs">ROBOT_POLL_INTERVAL_SECONDS</code> /{' '}
+          <code className="rounded bg-muted px-1 text-xs">VITE_POLL_INTERVAL_MS</code>).
         </p>
       </div>
 

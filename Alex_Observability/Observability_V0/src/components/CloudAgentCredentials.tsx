@@ -99,7 +99,7 @@ export function CloudAgentCredentials({ token }: { token: string }) {
             lab_id: effectiveLabId,
             agent_token: newAgentToken,
             backend_url: backendUrl,
-            robot_poll_interval_seconds: 5,
+            robot_poll_interval_seconds: 60,
           },
           null,
           2,

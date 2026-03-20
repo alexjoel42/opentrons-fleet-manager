@@ -70,6 +70,8 @@ pip install -r agent/requirements.txt
 
 The agent calls `GET /api/agent/robot-poll-targets` on your backend (using the lab agent token) and polls only that list. You do **not** put production IPs in config on disk unless you choose to.
 
+**LAN Flex/OT-2 note:** The robot API is **HTTP** on port 31950. The agent (and API, when deployed) treat **`https` stored for private / link-local IPs** (e.g. `10.x`, `192.168.x`, `*.local`) as **`http`** when polling, so a mistaken Fleet Manager scheme does not cause TLS errors against the robot.
+
 ### Environment variables (recommended for production)
 
 No JSON file is required. Set three variables (same backend URL as `VITE_API_URL` / your deployed API), then run the agent:
@@ -79,8 +81,8 @@ export LAB_ID="YOUR_LAB_ID"
 export AGENT_TOKEN="YOUR_AGENT_TOKEN"
 export BACKEND_URL="https://your-observability-api.com"
 
-# optional: seconds between poll cycles (default 5)
-# export ROBOT_POLL_INTERVAL_SECONDS=5
+# optional: seconds between poll cycles (default 60; lower for faster updates, higher to save API usage)
+# export ROBOT_POLL_INTERVAL_SECONDS=30
 
 python agent/run_agent.py
 ```
@@ -107,7 +109,7 @@ Minimal `agent_config.json` (no `robots` key):
   "lab_id": "YOUR_LAB_ID",
   "agent_token": "YOUR_AGENT_TOKEN",
   "backend_url": "https://your-observability-api.com",
-  "robot_poll_interval_seconds": 5
+  "robot_poll_interval_seconds": 60
 }
 ```
 

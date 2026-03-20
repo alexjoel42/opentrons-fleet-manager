@@ -7,8 +7,8 @@ Usage (recommended — no JSON file):
   export LAB_ID=... AGENT_TOKEN=... BACKEND_URL=https://your-api.com
   python run_agent.py
 
-  # Optional: poll interval (seconds), default 5
-  export ROBOT_POLL_INTERVAL_SECONDS=10
+  # Optional: poll interval (seconds), default 60 (saves cloud API / Render usage)
+  export ROBOT_POLL_INTERVAL_SECONDS=120
 
 CLI flags override env when set:
   python run_agent.py --lab-id=... --agent-token=... --backend-url=...
@@ -24,6 +24,7 @@ for development without the cloud UI.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import logging
 import os
@@ -42,10 +43,22 @@ DEFAULT_ROBOTS = [
 
 ROBOT_TIMEOUT = 10.0
 BACKEND_TIMEOUT = 30.0
+# Opentrons HTTP API: logs are GET /logs/{id}?format=text (bare /logs is not valid).
+_DEFAULT_LOG_IDS = (
+    "api.log",
+    "serial.log",
+    "server.log",
+    "touchscreen.log",
+    "can_bus.log",
+    "update_server.log",
+    "combined_api_server.log",
+)
+# Matches backend telemetry_snapshots truncation (demo_api post_agent_telemetry).
+_LOG_TELEMETRY_MAX_CHARS = 65535
 MIN_BACKOFF = 5.0
 MAX_BACKOFF = 60.0
 # How often to refresh robot list from the cloud (when not using --local-robots).
-TARGETS_REFRESH_SECONDS = 30.0
+TARGETS_REFRESH_SECONDS = 60.0
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,9 +68,117 @@ logging.basicConfig(
 log = logging.getLogger("agent")
 
 
+def _coerce_scheme_for_opentrons_lan(host: str, scheme: str) -> str:
+    """Flex / OT-2 robot HTTP API on the LAN is plain HTTP (port 31950).
+
+    Fleet Manager may still store ``https`` for private IPs; using TLS against the
+    robot yields SSL record-layer errors. Downgrade to http for typical LAN hosts.
+    """
+    s = (scheme or "http").lower()
+    if s != "https":
+        return s
+    raw = host.strip()
+    low = raw.lower()
+    if low.endswith(".local"):
+        return "http"
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        return s
+    if addr.is_private or addr.is_loopback or addr.is_link_local:
+        return "http"
+    return s
+
+
 def _url(ip: str, path: str, scheme: str = "http", port: int = 31950) -> str:
     path = path.strip("/")
     return f"{scheme}://{ip}:{port}/{path}"
+
+
+def _merge_health_json(body: dict, health: dict) -> None:
+    """Merge GET /health JSON body with header-derived fields (same keys as cloud BaseRobot)."""
+    if body.get("name") is not None:
+        health["name"] = body["name"]
+    if body.get("robot_serial") is not None:
+        health["serial_number"] = body["robot_serial"]
+    if body.get("serial_number") is not None:
+        health["serial_number"] = body["serial_number"]
+    for key in (
+        "status",
+        "date",
+        "logs",
+        "robot_model",
+        "api_version",
+        "fw_version",
+        "system_version",
+        "links",
+    ):
+        if body.get(key) is not None:
+            health[key] = body[key]
+
+
+def _fetch_log_file_text(
+    client: httpx.Client,
+    ip: str,
+    scheme: str,
+    port: int,
+    log_id: str,
+    base_headers: dict[str, str],
+) -> str | None:
+    r = client.get(
+        _url(ip, f"logs/{log_id}", scheme, port),
+        headers={**base_headers, "Accept": "text/plain"},
+        params={"format": "text"},
+    )
+    if r.status_code == 404:
+        return None
+    if r.status_code != 200:
+        return None
+    return r.text
+
+
+def _combined_logs_for_telemetry(
+    client: httpx.Client,
+    ip: str,
+    scheme: str,
+    port: int,
+    base_headers: dict[str, str],
+    links: dict | list | None,
+    max_chars: int = _LOG_TELEMETRY_MAX_CHARS,
+) -> str | None:
+    """Fetch /logs/{{id}} files; order matches cloud BaseRobot.get_logs."""
+    log_ids: list[str] = []
+    seen: set[str] = set()
+    if isinstance(links, dict):
+        for _key, path in links.items():
+            if not path or not isinstance(path, str):
+                continue
+            log_id = path.split("/")[-1] if "/" in path else path
+            if log_id and log_id not in seen:
+                seen.add(log_id)
+                log_ids.append(log_id)
+    for log_id in _DEFAULT_LOG_IDS:
+        if log_id not in seen:
+            seen.add(log_id)
+            log_ids.append(log_id)
+
+    parts: list[str] = []
+    total = 0
+    prefix_tpl = "=== {} ===\n"
+    for log_id in log_ids:
+        text = _fetch_log_file_text(client, ip, scheme, port, log_id, base_headers)
+        if not text:
+            continue
+        header = prefix_tpl.format(log_id)
+        room = max_chars - total
+        if room <= len(header):
+            break
+        chunk = header + text[: room - len(header)]
+        parts.append(chunk)
+        total += len(chunk)
+        if total >= max_chars:
+            break
+    return "\n\n".join(parts) if parts else None
 
 
 def fetch_robot_telemetry(
@@ -82,7 +203,13 @@ def fetch_robot_telemetry(
                     "status": r.headers.get("status"),
                     "health_data": r.headers.get("health_data"),
                 }
-                out["serial"] = r.headers.get("serial_number")
+                try:
+                    body = r.json()
+                    if isinstance(body, dict):
+                        _merge_health_json(body, out["health"])
+                except Exception:
+                    pass
+                out["serial"] = out["health"].get("serial_number")
             # Runs
             r = client.get(_url(ip, "runs", scheme, port), headers=headers)
             if r.status_code == 200:
@@ -90,10 +217,16 @@ def fetch_robot_telemetry(
                     out["runs"] = r.json()
                 except Exception:
                     out["runs"] = {}
-            # Logs
-            r = client.get(_url(ip, "logs", scheme, port), headers=headers)
-            if r.status_code == 200:
-                out["logs"] = r.headers.get("logs") or ""
+            # Logs: per Opentrons API, use GET /logs/{{log_identifier}}?format=text
+            if out["health"] is not None:
+                out["logs"] = _combined_logs_for_telemetry(
+                    client,
+                    ip,
+                    scheme,
+                    port,
+                    headers,
+                    out["health"].get("links"),
+                )
     except Exception as e:
         log.warning("Robot %s (%s): %s", ip, scheme, e)
         return None
@@ -112,6 +245,7 @@ def build_telemetry_payload(robots_config: list, timeout: float = ROBOT_TIMEOUT)
             port = int(r.get("port") or 31950)
         if not ip:
             continue
+        scheme = _coerce_scheme_for_opentrons_lan(ip, scheme)
         data = fetch_robot_telemetry(ip, scheme=scheme, port=port, timeout=timeout)
         if data is None:
             continue
@@ -161,6 +295,7 @@ def fetch_robot_poll_targets(
                     port = int(item.get("port") or 31950)
                 except (TypeError, ValueError):
                     port = 31950
+                scheme = _coerce_scheme_for_opentrons_lan(ip, scheme)
                 out.append({"ip": ip, "scheme": scheme, "port": port})
             return out
     except Exception as e:
@@ -194,7 +329,7 @@ def post_telemetry(
         return False
 
 
-def _env_poll_interval_seconds(default: float = 5.0) -> float:
+def _env_poll_interval_seconds(default: float = 60.0) -> float:
     for key in ("ROBOT_POLL_INTERVAL_SECONDS", "AGENT_POLL_INTERVAL_SECONDS"):
         raw = os.environ.get(key, "").strip()
         if not raw:
@@ -217,7 +352,7 @@ def load_config(path: str) -> dict:
     if not isinstance(robots, list):
         robots = []
     data["robots"] = robots
-    data.setdefault("robot_poll_interval_seconds", _env_poll_interval_seconds(5.0))
+    data.setdefault("robot_poll_interval_seconds", _env_poll_interval_seconds(60.0))
     data.setdefault("backend_url", os.environ.get("BACKEND_URL", ""))
     data.setdefault("lab_id", os.environ.get("LAB_ID", ""))
     data.setdefault("agent_token", os.environ.get("AGENT_TOKEN", ""))
@@ -259,8 +394,8 @@ def main() -> int:
     ap.add_argument(
         "--interval",
         type=float,
-        default=_env_poll_interval_seconds(5.0),
-        help="Poll interval in seconds (default: env ROBOT_POLL_INTERVAL_SECONDS or 5)",
+        default=_env_poll_interval_seconds(60.0),
+        help="Poll interval in seconds (default: env ROBOT_POLL_INTERVAL_SECONDS or 60)",
     )
     ap.add_argument("--https-ips", help="With --local-robots: comma-separated IPs to use HTTPS")
     ap.add_argument(
