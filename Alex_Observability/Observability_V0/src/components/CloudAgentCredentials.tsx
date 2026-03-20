@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   createLab,
   createLabAgentToken,
@@ -9,6 +9,31 @@ import {
 
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
+}
+
+function CredentialsFrame({
+  embedded,
+  children,
+}: {
+  embedded: boolean;
+  children: ReactNode;
+}) {
+  if (embedded) return <div>{children}</div>;
+  return (
+    <section
+      className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
+      aria-label="Relay agent credentials"
+    >
+      {children}
+    </section>
+  );
+}
+
+function CredentialsTitle({ embedded }: { embedded: boolean }) {
+  if (embedded) return null;
+  return (
+    <h2 className="font-display text-lg font-normal tracking-tight text-foreground">Relay agent credentials</h2>
+  );
 }
 
 function UserAccessTokenBlock({
@@ -53,7 +78,14 @@ function UserAccessTokenBlock({
   );
 }
 
-export function CloudAgentCredentials({ token }: { token: string }) {
+export function CloudAgentCredentials({
+  token,
+  embedded = false,
+}: {
+  token: string;
+  /** Omit card chrome and title when wrapped in `CloudSetupAccordion` on the dashboard. */
+  embedded?: boolean;
+}) {
   const qc = useQueryClient();
   const {
     data: labs,
@@ -113,14 +145,9 @@ export function CloudAgentCredentials({ token }: { token: string }) {
 
   if (isLoading) {
     return (
-      <section
-        className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
-        aria-label="Relay agent credentials"
-      >
-        <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-          Relay agent credentials
-        </h2>
-        <div className="mt-5">
+      <CredentialsFrame embedded={embedded}>
+        <CredentialsTitle embedded={embedded} />
+        <div className={embedded ? 'mt-0' : 'mt-5'}>
           <UserAccessTokenBlock
             token={token}
             copyFlash={copyFlash}
@@ -128,21 +155,16 @@ export function CloudAgentCredentials({ token }: { token: string }) {
           />
         </div>
         <p className="mt-4 text-sm text-muted-foreground">Loading labs…</p>
-      </section>
+      </CredentialsFrame>
     );
   }
 
   if (isError) {
     const msg = labsFetchError instanceof Error ? labsFetchError.message : String(labsFetchError);
     return (
-      <section
-        className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
-        aria-label="Relay agent credentials"
-      >
-        <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-          Relay agent credentials
-        </h2>
-        <div className="mt-5">
+      <CredentialsFrame embedded={embedded}>
+        <CredentialsTitle embedded={embedded} />
+        <div className={embedded ? 'mt-0' : 'mt-5'}>
           <UserAccessTokenBlock
             token={token}
             copyFlash={copyFlash}
@@ -176,20 +198,15 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         {createLabMut.isError && (
           <p className="mt-2 text-sm text-destructive">{(createLabMut.error as Error).message}</p>
         )}
-      </section>
+      </CredentialsFrame>
     );
   }
 
   if (!labs?.length) {
     return (
-      <section
-        className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
-        aria-label="Relay agent credentials"
-      >
-        <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-          Relay agent credentials
-        </h2>
-        <div className="mt-5">
+      <CredentialsFrame embedded={embedded}>
+        <CredentialsTitle embedded={embedded} />
+        <div className={embedded ? 'mt-0' : 'mt-5'}>
           <UserAccessTokenBlock
             token={token}
             copyFlash={copyFlash}
@@ -211,19 +228,14 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         {createLabMut.isError && (
           <p className="mt-2 text-sm text-destructive">{(createLabMut.error as Error).message}</p>
         )}
-      </section>
+      </CredentialsFrame>
     );
   }
 
   return (
-    <section
-      className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
-      aria-label="Relay agent credentials"
-    >
-      <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-        Relay agent credentials
-      </h2>
-      <p className="mt-2 text-sm text-muted-foreground">
+    <CredentialsFrame embedded={embedded}>
+      <CredentialsTitle embedded={embedded} />
+      <p className={`text-sm text-muted-foreground ${embedded ? 'mt-0' : 'mt-2'}`}>
         Your sign-in <strong className="text-foreground">access token</strong> is not the same as the{' '}
         <strong className="text-foreground">agent token</strong> below — the relay uses{' '}
         <code className="rounded bg-muted px-1 py-0.5 text-xs">LAB_ID</code>,{' '}
@@ -381,6 +393,6 @@ export function CloudAgentCredentials({ token }: { token: string }) {
           )}
         </div>
       )}
-    </section>
+    </CredentialsFrame>
   );
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   fetchLabs,
   fetchRobotPollTargets,
@@ -10,7 +10,41 @@ import { defaultSchemeForRobotAddress, parseRobotIpsFromText } from '../utils/ro
 
 const emptyPollTargetRow = (): RobotPollTarget => ({ ip: '', scheme: 'http', port: 31950 });
 
-export function CloudRobotPollTargets({ token }: { token: string }) {
+function PollTargetsFrame({
+  embedded,
+  children,
+}: {
+  embedded: boolean;
+  children: ReactNode;
+}) {
+  if (embedded) return <div>{children}</div>;
+  return (
+    <section
+      className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
+      aria-label="Robot addresses for relay agent"
+    >
+      {children}
+    </section>
+  );
+}
+
+function PollTargetsTitle({ embedded }: { embedded: boolean }) {
+  if (embedded) return null;
+  return (
+    <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
+      Robot addresses (relay agent)
+    </h2>
+  );
+}
+
+export function CloudRobotPollTargets({
+  token,
+  embedded = false,
+}: {
+  token: string;
+  /** Omit card chrome and title when wrapped in `CloudSetupAccordion` on the dashboard. */
+  embedded?: boolean;
+}) {
   const qc = useQueryClient();
   const { data: labs } = useQuery({
     queryKey: ['cloud', 'labs', token],
@@ -62,14 +96,9 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
   if (!labs?.length) return null;
 
   return (
-    <section
-      className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
-      aria-label="Robot addresses for relay agent"
-    >
-      <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-        Robot addresses (relay agent)
-      </h2>
-      <p className="mt-2 text-sm text-muted-foreground">
+    <PollTargetsFrame embedded={embedded}>
+      <PollTargetsTitle embedded={embedded} />
+      <p className={`text-sm text-muted-foreground ${embedded ? 'mt-0' : 'mt-2'}`}>
         The lab relay agent loads this list from the cloud — it does not store robot IPs locally in production.
         Set your Opentrons robot IPs or hostnames here; the agent polls them and sends telemetry to the backend.
       </p>
@@ -214,6 +243,6 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
         )}
         {saveMut.isSuccess && <span className="text-sm text-muted-foreground">Saved.</span>}
       </div>
-    </section>
+    </PollTargetsFrame>
   );
 }

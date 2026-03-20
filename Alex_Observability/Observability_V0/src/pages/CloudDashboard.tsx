@@ -1,15 +1,24 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/authContext';
-import { fetchCloudRobots, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
+import { fetchCloudRobots, fetchLabs, isStale, lastSeenLabel, type CloudRobotSummary } from '../api/cloudApi';
 import { CloudAgentCredentials } from '../components/CloudAgentCredentials';
 import { CloudRobotPollTargets } from '../components/CloudRobotPollTargets';
+import { CloudSetupAccordion } from '../components/CloudSetupAccordion';
+import { FleetStatusSummaryTable } from '../components/FleetStatusSummaryTable';
 import { UI_POLL_INTERVAL_MS } from '../lib/queryPollMs';
-import { FLEET_STATUS_LABELS, deriveRobotFleetVisualStatus } from '../utils/robotFleetStatus';
+import {
+  FLEET_FILTER_OPTIONS,
+  FLEET_STATUS_LABELS,
+  isRobotFleetAttentionStatus,
+  type FleetStatusFilter,
+  type RobotFleetVisualStatus,
+} from '../utils/robotFleetStatus';
 import {
   cloudRobotCardSubtitle,
   cloudRobotCardTitle,
-  coerceRunsForFleetStatus,
+  cloudRobotFleetVisualStatus,
   telemetryLatestRunSummary,
   telemetryStatus,
 } from '../utils/telemetryHealth';
@@ -30,14 +39,7 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
     ip_last_seen: robot.ip_last_seen,
     health,
   });
-  const runsCoerced = coerceRunsForFleetStatus(robot.runs);
-  const visualStatus = deriveRobotFleetVisualStatus({
-    fleetError: null,
-    healthLoading: false,
-    healthError: false,
-    healthData: health,
-    runsData: runsCoerced ?? undefined,
-  });
+  const visualStatus = cloudRobotFleetVisualStatus(robot);
   const runLine = telemetryLatestRunSummary(robot.runs);
   const healthStatusLine = telemetryStatus(health);
 
@@ -100,6 +102,8 @@ function errMessage(e: unknown): string {
 
 export function CloudDashboard() {
   const { token } = useAuth();
+  const [statusFilter, setStatusFilter] = useState<FleetStatusFilter>('all');
+
   const robotsQuery = useQuery({
     queryKey: ['cloud', 'robots', token],
     queryFn: () => fetchCloudRobots(token!),
@@ -108,10 +112,51 @@ export function CloudDashboard() {
     refetchInterval: (q) => (q.state.status === 'error' ? false : UI_POLL_INTERVAL_MS),
   });
 
+  const labsQuery = useQuery({
+    queryKey: ['cloud', 'labs', token],
+    queryFn: () => fetchLabs(token!),
+    enabled: !!token,
+  });
+
   const robotsError = robotsQuery.error ? errMessage(robotsQuery.error) : null;
-  const robots = robotsQuery.data;
+  const robots = robotsQuery.data ?? [];
 
   const robotsLoading = robotsQuery.isLoading && !robotsQuery.isError;
+
+  const statusForRobot = useCallback((r: CloudRobotSummary) => cloudRobotFleetVisualStatus(r), []);
+
+  const filteredRobots = useMemo(() => {
+    if (statusFilter === 'all') return robots;
+    if (statusFilter === 'attention') {
+      return robots.filter((r) => isRobotFleetAttentionStatus(statusForRobot(r)));
+    }
+    return robots.filter((r) => statusForRobot(r) === statusFilter);
+  }, [robots, statusFilter, statusForRobot]);
+
+  const filterCounts = useMemo(() => {
+    const m: Partial<Record<FleetStatusFilter, number>> = { all: robots.length };
+    m.attention = robots.filter((r) => isRobotFleetAttentionStatus(statusForRobot(r))).length;
+    for (const opt of FLEET_FILTER_OPTIONS) {
+      if (opt.value === 'all' || opt.value === 'attention') continue;
+      m[opt.value] = robots.filter((r) => statusForRobot(r) === opt.value).length;
+    }
+    return m as Record<FleetStatusFilter, number>;
+  }, [robots, statusForRobot]);
+
+  useEffect(() => {
+    if (statusFilter === 'attention' && (filterCounts.attention ?? 0) === 0) {
+      setStatusFilter('all');
+    }
+  }, [statusFilter, filterCounts.attention]);
+
+  const visualCounts = useMemo((): Record<RobotFleetVisualStatus, number> => {
+    const o = {} as Record<RobotFleetVisualStatus, number>;
+    for (const opt of FLEET_FILTER_OPTIONS) {
+      if (opt.value === 'all' || opt.value === 'attention') continue;
+      o[opt.value] = filterCounts[opt.value] ?? 0;
+    }
+    return o;
+  }, [filterCounts]);
 
   return (
     <div>
@@ -124,8 +169,11 @@ export function CloudDashboard() {
           Robot <span className="gradient-text">fleet</span>
         </h1>
         <p className="mt-2 text-muted-foreground">
-          Configure robot addresses below; the relay agent loads them from the cloud. UI and agent default to about a
-          minute between updates to keep API usage low (override with{' '}
+          <strong className="font-medium text-foreground">Relay agent credentials</strong> and{' '}
+          <strong className="font-medium text-foreground">Robot addresses</strong> start open; use the headers to
+          collapse either section when you want more room for the fleet. The relay agent loads robot addresses from the
+          cloud. UI and agent default to about a minute
+          between updates to keep API usage low (override with{' '}
           <code className="rounded bg-muted px-1 text-xs">ROBOT_POLL_INTERVAL_SECONDS</code> /{' '}
           <code className="rounded bg-muted px-1 text-xs">VITE_POLL_INTERVAL_MS</code>).
         </p>
@@ -141,23 +189,98 @@ export function CloudDashboard() {
         </div>
       ) : null}
 
-      {token ? <CloudAgentCredentials token={token} /> : null}
-      {token ? <CloudRobotPollTargets token={token} /> : null}
+      {token ? (
+        <CloudSetupAccordion title="Relay agent credentials">
+          <CloudAgentCredentials token={token} embedded />
+        </CloudSetupAccordion>
+      ) : null}
+      {token && (labsQuery.data?.length ?? 0) > 0 ? (
+        <CloudSetupAccordion title="Robot addresses (relay agent)">
+          <CloudRobotPollTargets token={token} embedded />
+        </CloudSetupAccordion>
+      ) : null}
 
       {robotsLoading ? (
         <p className="rounded-xl border border-border bg-muted/30 px-6 py-8 text-center text-muted-foreground">
           Loading robots…
         </p>
-      ) : robotsError ? null : robots && robots.length === 0 ? (
+      ) : robotsError ? null : robots.length === 0 ? (
         <p className="rounded-xl border border-border bg-muted/30 px-6 py-8 text-center text-muted-foreground">
           No robots yet. Run the relay agent in your lab to see robots here.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {robots?.map((robot) => (
-            <RobotCloudCard key={robot.id} robot={robot} />
-          ))}
-        </div>
+        <>
+          <FleetStatusSummaryTable
+            counts={visualCounts}
+            fleetStatusFilter={statusFilter}
+            onFleetStatusFilter={setStatusFilter}
+            onSelectStatus={(s) => setStatusFilter(s)}
+          />
+
+          <div className="relative mb-8 overflow-hidden rounded-lg bg-gradient-to-r from-accent to-accent-secondary px-6 py-5 text-white shadow-accent">
+            <div className="relative">
+              <span className="font-mono text-xs uppercase tracking-[0.15em] text-white/90">
+                Fleet at a glance
+              </span>
+              <p className="mt-1 font-display text-2xl font-normal tracking-tight">
+                {robots.length} robot{robots.length !== 1 ? 's' : ''} in cloud
+                {statusFilter !== 'all' && (
+                  <span className="ml-2 text-lg font-normal text-white/90">
+                    · {filteredRobots.length} shown
+                    {statusFilter === 'attention' ? ' need attention' : ''}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <section className="mb-6" aria-label="Filter fleet by status">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Filter by status
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {FLEET_FILTER_OPTIONS.map((opt) => {
+                const count = filterCounts[opt.value] ?? 0;
+                const selected = statusFilter === opt.value;
+                const attentionPill = opt.value === 'attention';
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setStatusFilter(opt.value)}
+                    aria-pressed={selected}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                      selected
+                        ? attentionPill
+                          ? 'border-[var(--color-fleet-failed-border)] bg-[var(--color-fleet-failed-bg)] text-[var(--color-fleet-failed-border)] shadow-sm'
+                          : 'border-accent bg-accent/12 text-accent shadow-sm'
+                        : 'border-border bg-card text-muted-foreground hover:border-accent/35 hover:text-foreground'
+                    }`}
+                  >
+                    {opt.label}
+                    <span
+                      className={`ml-1.5 tabular-nums ${selected ? 'text-accent/90' : 'text-muted-foreground'}`}
+                    >
+                      ({count})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {filteredRobots.length === 0 ? (
+            <p className="rounded-lg border border-border bg-card px-6 py-8 text-center text-muted-foreground">
+              No robots match this filter. Choose another status or clear the filter.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredRobots.map((robot) => (
+                <RobotCloudCard key={robot.id} robot={robot} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
