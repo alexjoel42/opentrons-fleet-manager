@@ -16,6 +16,33 @@ export function isValidRobotAddress(ip: string): boolean {
   );
 }
 
+/**
+ * Opentrons HTTP API on the LAN is plain HTTP (port 31950). Use http for private /
+ * loopback / link-local addresses so bulk-import and defaults match real robots.
+ */
+export function defaultSchemeForRobotAddress(host: string): 'http' | 'https' {
+  const s = host.trim();
+  const lower = s.toLowerCase();
+  if (lower === LOCALHOST || lower === '127.0.0.1' || lower === '::1') return 'http';
+  if (IPV4_REGEX.test(s)) {
+    const parts = s.split('.').map((x) => parseInt(x, 10));
+    const [a, b] = parts;
+    if (a === 10) return 'http';
+    if (a === 172 && b >= 16 && b <= 31) return 'http';
+    if (a === 192 && b === 168) return 'http';
+    if (a === 127) return 'http';
+    if (a === 169 && b === 254) return 'http';
+    return 'https';
+  }
+  if (IPV6_REGEX.test(s)) {
+    const first = lower.split(':').find(Boolean) ?? '';
+    if (first === 'fe80' || first.startsWith('fc') || first.startsWith('fd')) return 'http';
+    return 'https';
+  }
+  if (lower.endsWith('.local')) return 'http';
+  return 'https';
+}
+
 function dedupeValid(candidates: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];

@@ -6,13 +6,7 @@ import {
   type RobotPollTarget,
   saveRobotPollTargets,
 } from '../api/cloudApi';
-import { parseRobotIpsFromText } from '../utils/robotAddress';
-
-function defaultSchemeForIp(ip: string): 'http' | 'https' {
-  const lower = ip.trim().toLowerCase();
-  if (lower === 'localhost' || lower === '127.0.0.1' || lower === '::1') return 'http';
-  return 'https';
-}
+import { defaultSchemeForRobotAddress, parseRobotIpsFromText } from '../utils/robotAddress';
 
 export function CloudRobotPollTargets({ token }: { token: string }) {
   const qc = useQueryClient();
@@ -36,7 +30,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
   const [importText, setImportText] = useState('');
 
   useEffect(() => {
-    if (targets) setRows(targets.length > 0 ? [...targets] : [{ ip: '', scheme: 'https', port: 31950 }]);
+    if (targets) setRows(targets.length > 0 ? [...targets] : [{ ip: '', scheme: 'http', port: 31950 }]);
   }, [targets]);
 
   const saveMut = useMutation({
@@ -141,7 +135,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
           <button
             type="button"
             className="text-sm text-primary underline-offset-4 hover:underline"
-            onClick={() => setRows([...rows, { ip: '', scheme: 'https', port: 31950 }])}
+            onClick={() => setRows([...rows, { ip: '', scheme: 'http', port: 31950 }])}
           >
             + Add row
           </button>
@@ -167,7 +161,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
             const { addresses } = parseRobotIpsFromText(importText);
             const added = addresses.map((ip) => ({
               ip,
-              scheme: defaultSchemeForIp(ip),
+              scheme: defaultSchemeForRobotAddress(ip),
               port: 31950,
             }));
             setRows((prev) => [...prev.filter((r) => r.ip.trim()), ...added]);
