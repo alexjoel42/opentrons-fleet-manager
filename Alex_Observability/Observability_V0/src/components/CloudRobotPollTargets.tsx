@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   fetchLabs,
   fetchRobotPollTargets,
@@ -7,6 +7,8 @@ import {
   saveRobotPollTargets,
 } from '../api/cloudApi';
 import { defaultSchemeForRobotAddress, parseRobotIpsFromText } from '../utils/robotAddress';
+
+const emptyPollTargetRow = (): RobotPollTarget => ({ ip: '', scheme: 'http', port: 31950 });
 
 export function CloudRobotPollTargets({ token }: { token: string }) {
   const qc = useQueryClient();
@@ -24,19 +26,35 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
     queryKey: ['cloud', 'robot-poll-targets', token, effectiveLabId],
     queryFn: () => fetchRobotPollTargets(token, effectiveLabId),
     enabled: !!token && !!effectiveLabId,
+    /** Avoid refetch resetting local rows while editing (see dirty + hydrate below). */
+    refetchOnWindowFocus: false,
   });
 
   const [rows, setRows] = useState<RobotPollTarget[]>([]);
   const [importText, setImportText] = useState('');
+  /** When true, server refetches must not overwrite `rows` (user is editing or removed rows). */
+  const [dirty, setDirty] = useState(false);
+  const lastHydratedLabRef = useRef<string>('');
 
   useEffect(() => {
-    if (targets) setRows(targets.length > 0 ? [...targets] : [{ ip: '', scheme: 'http', port: 31950 }]);
-  }, [targets]);
+    if (effectiveLabId === lastHydratedLabRef.current) return;
+    const prevLab = lastHydratedLabRef.current;
+    lastHydratedLabRef.current = effectiveLabId;
+    setDirty(false);
+    if (prevLab !== '') setRows([]);
+  }, [effectiveLabId]);
+
+  useEffect(() => {
+    if (dirty || targets === undefined) return;
+    setRows(targets.length > 0 ? [...targets] : [emptyPollTargetRow()]);
+  }, [effectiveLabId, targets, dirty]);
 
   const saveMut = useMutation({
     mutationFn: () => saveRobotPollTargets(token, effectiveLabId, rows.filter((r) => r.ip.trim())),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['cloud', 'robot-poll-targets', token, effectiveLabId] });
+    onSuccess: (saved) => {
+      qc.setQueryData(['cloud', 'robot-poll-targets', token, effectiveLabId], saved);
+      setRows(saved.length > 0 ? [...saved] : [emptyPollTargetRow()]);
+      setDirty(false);
       void qc.invalidateQueries({ queryKey: ['cloud', 'robots', token] });
     },
   });
@@ -87,6 +105,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
                   value={row.ip}
                   placeholder="e.g. 192.168.1.10"
                   onChange={(e) => {
+                    setDirty(true);
                     const next = [...rows];
                     next[i] = { ...next[i], ip: e.target.value };
                     setRows(next);
@@ -99,6 +118,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
                   className="mt-1 block rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={row.scheme}
                   onChange={(e) => {
+                    setDirty(true);
                     const next = [...rows];
                     next[i] = { ...next[i], scheme: e.target.value as 'http' | 'https' };
                     setRows(next);
@@ -117,6 +137,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
                   min={1}
                   max={65535}
                   onChange={(e) => {
+                    setDirty(true);
                     const next = [...rows];
                     next[i] = { ...next[i], port: Number(e.target.value) || 31950 };
                     setRows(next);
@@ -126,7 +147,10 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
               <button
                 type="button"
                 className="rounded-md border border-destructive/50 px-2 py-2 text-sm text-destructive hover:bg-destructive/10"
-                onClick={() => setRows(rows.filter((_, j) => j !== i))}
+                onClick={() => {
+                  setDirty(true);
+                  setRows(rows.filter((_, j) => j !== i));
+                }}
               >
                 Remove
               </button>
@@ -135,7 +159,10 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
           <button
             type="button"
             className="text-sm text-primary underline-offset-4 hover:underline"
-            onClick={() => setRows([...rows, { ip: '', scheme: 'http', port: 31950 }])}
+            onClick={() => {
+              setDirty(true);
+              setRows([...rows, emptyPollTargetRow()]);
+            }}
           >
             + Add row
           </button>
@@ -158,6 +185,7 @@ export function CloudRobotPollTargets({ token }: { token: string }) {
           type="button"
           className="mt-2 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-sm hover:bg-muted"
           onClick={() => {
+            setDirty(true);
             const { addresses } = parseRobotIpsFromText(importText);
             const added = addresses.map((ip) => ({
               ip,

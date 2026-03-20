@@ -11,7 +11,7 @@
 
 **Composed:** `useRobot(ip)` returns `{ health, modules, pipettes, isLoading, isError, error, refetch }` for the detail page.
 
-**Cloud mode:** Cloud dashboard uses `useQuery` with **`cloudApi`** (`fetchLabs`, `fetchCloudRobots`, …) and keys **`['cloud', 'labs', token]`**, **`['cloud', 'robots', token]`**. **`CloudRobotPollTargets`** uses **`['cloud', 'robot-poll-targets', token, labId]`** for **`fetchRobotPollTargets`**; **`saveRobotPollTargets`** invalidates **`['cloud', 'robot-poll-targets', …]`** and **`['cloud', 'robots', token]`**. Token from **`useAuth().token`**.
+**Cloud mode:** Cloud dashboard uses `useQuery` with **`cloudApi`** (`fetchLabs`, `fetchCloudRobots`, …) and keys **`['cloud', 'labs', token]`**, **`['cloud', 'robots', token]`**. **`CloudRobotPollTargets`** uses **`['cloud', 'robot-poll-targets', token, labId]`** for **`fetchRobotPollTargets`** ( **`refetchOnWindowFocus: false`** ); successful save **`setQueryData`** on that key and invalidates **`['cloud', 'robots', token]`**. Token from **`useAuth().token`**.
 
 **Cloud robot detail:** `useQuery` with `fetchCloudRobot`, key **`['cloud', 'robot', id, token]`** (pattern as implemented).
 
