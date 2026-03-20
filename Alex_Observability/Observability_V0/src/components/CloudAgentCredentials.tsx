@@ -11,6 +11,48 @@ async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
 
+function UserAccessTokenBlock({
+  token,
+  copyFlash,
+  onCopyJwt,
+}: {
+  token: string;
+  copyFlash: string | null;
+  onCopyJwt: () => void;
+}) {
+  const preview =
+    token.length > 28 ? `${token.slice(0, 16)}…${token.slice(-12)}` : `${token.slice(0, 8)}…`;
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-4">
+      <p className="text-sm font-medium text-foreground">User access token (JWT)</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Session token for <code className="rounded bg-muted px-1">Authorization: Bearer</code> (API calls,{' '}
+        <code className="rounded bg-muted px-1">curl</code>, local tooling). Do{' '}
+        <strong className="text-foreground">not</strong> set this as the relay’s{' '}
+        <code className="rounded bg-muted px-1">AGENT_TOKEN</code> — use{' '}
+        <strong className="text-foreground">Generate new agent token</strong> below.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <code
+          className="max-w-full break-all rounded-md bg-background px-3 py-2 font-mono text-xs text-foreground"
+          title="Preview only — use Copy for the full token"
+        >
+          {preview}
+        </code>
+        <button
+          type="button"
+          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted"
+          onClick={() => {
+            void copyText(token).then(() => onCopyJwt());
+          }}
+        >
+          {copyFlash === 'jwt' ? 'Copied' : 'Copy JWT'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function CloudAgentCredentials({ token }: { token: string }) {
   const qc = useQueryClient();
   const {
@@ -75,7 +117,17 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         className="mb-10 rounded-xl border border-border bg-card p-6 shadow-sm"
         aria-label="Relay agent credentials"
       >
-        <p className="text-sm text-muted-foreground">Loading labs…</p>
+        <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
+          Relay agent credentials
+        </h2>
+        <div className="mt-5">
+          <UserAccessTokenBlock
+            token={token}
+            copyFlash={copyFlash}
+            onCopyJwt={() => flash('jwt')}
+          />
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">Loading labs…</p>
       </section>
     );
   }
@@ -90,7 +142,14 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
           Relay agent credentials
         </h2>
-        <p className="mt-2 text-sm text-destructive" role="alert">
+        <div className="mt-5">
+          <UserAccessTokenBlock
+            token={token}
+            copyFlash={copyFlash}
+            onCopyJwt={() => flash('jwt')}
+          />
+        </div>
+        <p className="mt-4 text-sm text-destructive" role="alert">
           Could not load labs: {msg}
         </p>
         <button
@@ -130,7 +189,14 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
           Relay agent credentials
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <div className="mt-5">
+          <UserAccessTokenBlock
+            token={token}
+            copyFlash={copyFlash}
+            onCopyJwt={() => flash('jwt')}
+          />
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">
           Create a lab first, then you can generate an agent token and copy values for{' '}
           <code className="rounded bg-muted px-1 py-0.5 text-xs">agent_config.json</code>.
         </p>
@@ -166,6 +232,14 @@ export function CloudAgentCredentials({ token }: { token: string }) {
         shown once when generated — copy it now. You can generate at most{' '}
         <strong className="text-foreground">4 new tokens per lab per day</strong> (UTC).
       </p>
+
+      <div className="mt-5">
+        <UserAccessTokenBlock
+          token={token}
+          copyFlash={copyFlash}
+          onCopyJwt={() => flash('jwt')}
+        />
+      </div>
 
       <div className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
         <p className="text-sm font-medium text-foreground">Lab ID</p>
