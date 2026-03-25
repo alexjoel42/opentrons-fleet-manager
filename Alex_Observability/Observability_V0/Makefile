@@ -1,14 +1,18 @@
 # Observability_V0 — run from this directory
 # Usage: make setup, make typecheck, make lint, make dev
+#
+# Dev API: use "make backend" or "make run-backend" (hyphen). Vite proxies /api → http://localhost:8000 by default
+# (see vite.config.ts BACKEND_TARGET_URL). Do NOT use "make run backend" (space) — that only runs the frontend.
 
 PYTHON        ?= python3
 VENV          := .venv
 VENV_BIN      := $(VENV)/bin
 BACKEND       := backend
+BACKEND_PORT  ?= 8000
 RELEASE_VERSION ?= 0.0.0-dev
 RELEASE_DIR   := release-artifacts
 
-.PHONY: setup setup-js setup-py typecheck typecheck-js typecheck-py lint lint-js lint-py lint-fix format-fix format-fix-py dev run run-backend db-migrate seed-lab run-agent fetch-protocol copy-protocol-to-jupyter help build-release build-release-agent test-release test-release-agent
+.PHONY: setup setup-js setup-py typecheck typecheck-js typecheck-py lint lint-js lint-py lint-fix format-fix format-fix-py dev run run-backend backend db-migrate seed-lab run-agent fetch-protocol copy-protocol-to-jupyter help build-release build-release-agent test-release test-release-agent
 
 # --- Setup ---
 setup: setup-js setup-py
@@ -91,10 +95,14 @@ run-dev:
 	@echo "Starting Vite dev server..."
 	npm run dev
 
-# Backend API (must be running for /api/robots; run in a separate terminal)
+# Backend API — listens on http://localhost:$(BACKEND_PORT) (override: make backend BACKEND_PORT=8001).
+# Run in a separate terminal from Vite so /api proxy (default target above) can connect.
 run-backend:
-	@echo "Starting backend API on http://localhost:8000..."
-	cd $(BACKEND) && ../$(VENV_BIN)/uvicorn demo_api:app --reload --port 8000
+	@echo "Starting FastAPI on http://localhost:$(BACKEND_PORT) (Vite proxies /api here unless BACKEND_TARGET_URL is set)"
+	cd $(BACKEND) && ../$(VENV_BIN)/uvicorn demo_api:app --reload --port $(BACKEND_PORT)
+
+# Alias: "make backend" — same as run-backend (avoids confusion with "make run backend", which is not this).
+backend: run-backend
 
 # --- Cloud (require DATABASE_URL) ---
 db-migrate:
@@ -198,7 +206,8 @@ help:
 	@echo ""
 	@echo "Run:"
 	@echo "  make dev         - Start Vite dev server (same as make run)"
-	@echo "  make run-backend - Start FastAPI backend on port 8000 (run in another terminal)"
+	@echo "  make backend     - Start FastAPI on http://localhost:8000 (same as make run-backend; use another terminal)"
+	@echo "  make run-backend - Same as make backend (BACKEND_PORT=8000 by default; override if needed)"
 	@echo "  make fetch-protocol ROBOT_IP=198.51.100.73 RUN_ID=<run_id> - Fetch run + protocol from robot (no backend needed)"
 	@echo "  make copy-protocol-to-jupyter ROBOT_IP=... [PROTOCOL_ID=uuid | RUN_ID=run_uuid] - Resolve from run, find protocol dir, copy .py to Jupyter (run on robot)"
 	@echo ""

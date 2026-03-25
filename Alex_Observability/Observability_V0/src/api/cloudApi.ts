@@ -112,6 +112,10 @@ export interface CloudRobotSummary {
   health: Record<string, unknown> | null;
   runs: unknown;
   logs: string | null;
+  /** Free-form notes for this robot (dashboard). */
+  notes?: string | null;
+  /** Number of per-run notes stored (fleet list avoids sending every run note). */
+  run_note_count?: number;
 }
 
 /** Targets the relay agent fetches from GET /api/agent/robot-poll-targets (edited here, not on the agent). */
@@ -158,8 +162,66 @@ export async function fetchCloudRobots(token: string, labId?: string): Promise<C
   return Array.isArray(data) ? data : [];
 }
 
+export interface RunNoteSlot {
+  body: string;
+  updated_at: string | null;
+}
+
+export type CloudRunNotesEntry = {
+  detail?: RunNoteSlot;
+  inline?: RunNoteSlot;
+};
+
 export interface CloudRobotDetail extends CloudRobotSummary {
   created_at: string | null;
+  /** Per-run notes keyed by Opentrons run id (`detail` and optional `inline` next to View). */
+  run_notes?: Record<string, CloudRunNotesEntry>;
+}
+
+/** Update robot-level notes. Pass `null` or empty string to clear. */
+export async function patchCloudRobotNotes(
+  token: string,
+  robotId: string,
+  notes: string | null,
+): Promise<CloudRobotDetail> {
+  const res = await apiFetch(`/api/cloud/robots/${encodeURIComponent(robotId)}`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify({ notes: notes === '' || notes == null ? null : notes }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to save robot notes');
+  return data as CloudRobotDetail;
+}
+
+/**
+ * Update run notes. Pass only the fields you want to change.
+ * `note` = main/detail note; `inline` = quick note (e.g. by View). Empty string clears that slot.
+ */
+export async function putCloudRunNote(
+  token: string,
+  robotId: string,
+  runId: string,
+  payload: { note?: string | null; inline?: string | null },
+): Promise<CloudRobotDetail> {
+  const body: Record<string, string | null> = {};
+  if (Object.prototype.hasOwnProperty.call(payload, 'note')) {
+    body.note = payload.note === '' || payload.note == null ? '' : payload.note;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'inline')) {
+    body.inline = payload.inline === '' || payload.inline == null ? null : payload.inline;
+  }
+  const res = await apiFetch(
+    `/api/cloud/robots/${encodeURIComponent(robotId)}/runs/${encodeURIComponent(runId)}/note`,
+    {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? 'Failed to save run note');
+  return data as CloudRobotDetail;
 }
 
 export async function fetchCloudRobot(token: string, robotId: string): Promise<CloudRobotDetail> {

@@ -29,15 +29,31 @@ from typing import Any, AsyncGenerator
 
 import httpx
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _log = logging.getLogger(__name__)
 
 # Max POST /api/labs/{id}/tokens per lab per UTC day (each successful call creates a LabAgentToken row).
 AGENT_TOKEN_GENERATIONS_PER_UTC_DAY = 4
+
+
+class CloudRobotNotesPatch(BaseModel):
+    notes: str | None = Field(
+        default=None,
+        description="Robot-level notes. Omit key to leave unchanged; null or empty clears.",
+    )
+
+
+class CloudRunNotePut(BaseModel):
+    """Update run notes. Include ``note`` and/or ``inline`` to update that slot (empty string clears)."""
+
+    note: str | None = None
+    inline: str | None = None
+
 
 # Default port for Opentrons robot HTTP API (see docs.opentrons.com).
 DEFAULT_PORT = 31950
@@ -1215,6 +1231,41 @@ async def list_lab_robots(
     return out
 
 
+async def _run_note_counts_by_robot(db: AsyncSession, robot_ids: list[str]) -> dict[str, int]:
+    from models import RobotRunNote
+
+    if not robot_ids:
+        return {}
+    result = await db.execute(
+        select(RobotRunNote.robot_id, func.count())
+        .where(RobotRunNote.robot_id.in_(robot_ids))
+        .group_by(RobotRunNote.robot_id)
+    )
+    return {str(rid): int(cnt) for rid, cnt in result.all()}
+
+
+def _serialize_cloud_run_note_row(rn: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if rn.body and str(rn.body).strip():
+        out["detail"] = {"body": str(rn.body), "updated_at": rn.updated_at.isoformat() if rn.updated_at else None}
+    ib = getattr(rn, "inline_body", None)
+    iu = getattr(rn, "inline_updated_at", None)
+    if ib and str(ib).strip():
+        out["inline"] = {
+            "body": str(ib),
+            "updated_at": iu.isoformat() if iu else None,
+        }
+    return out
+
+
+async def _run_notes_map_for_robot(db: AsyncSession, robot_id: str) -> dict[str, dict[str, Any]]:
+    from models import RobotRunNote
+
+    result = await db.execute(select(RobotRunNote).where(RobotRunNote.robot_id == robot_id))
+    rows = result.scalars().all()
+    return {rn.run_id: _serialize_cloud_run_note_row(rn) for rn in rows}
+
+
 @app.get("/api/cloud/robots")
 async def list_robots_cloud(
     lab_id: str | None = Query(None),
@@ -1231,6 +1282,8 @@ async def list_robots_cloud(
     stmt = stmt.order_by(Robot.last_seen_at.desc().nullslast())
     result = await db.execute(stmt)
     rows = result.all()
+    ids = [r.id for r, _ in rows]
+    counts = await _run_note_counts_by_robot(db, ids)
     return [
         {
             "id": r.id,
@@ -1242,6 +1295,8 @@ async def list_robots_cloud(
             "health": s.health_json if s else None,
             "runs": s.last_run_summary_json if s else None,
             "logs": (s.log_tail_text[:2000] if s and s.log_tail_text else None),
+            "notes": r.notes,
+            "run_note_count": counts.get(r.id, 0),
         }
         for r, s in rows
     ]
@@ -1262,6 +1317,7 @@ async def get_robot_cloud(
     if not lab or lab.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Robot not found")
     snap = await db.get(TelemetrySnapshot, robot_id)
+    run_notes = await _run_notes_map_for_robot(db, robot_id)
     return {
         "id": robot.id,
         "lab_id": robot.lab_id,
@@ -1273,7 +1329,128 @@ async def get_robot_cloud(
         "health": snap.health_json if snap else None,
         "runs": snap.last_run_summary_json if snap else None,
         "logs": snap.log_tail_text if snap else None,
+        "notes": robot.notes,
+        "run_notes": run_notes,
+        "run_note_count": len(run_notes),
     }
+
+
+@app.patch("/api/cloud/robots/{robot_id}")
+async def patch_robot_cloud_notes(
+    robot_id: str,
+    body: CloudRobotNotesPatch,
+    db: AsyncSession = Depends(get_agent_db_session),
+    user: Any = Depends(get_current_user),
+):
+    """Update robot-level notes (owner's lab only)."""
+    from models import Lab, Robot
+
+    robot = await db.get(Robot, robot_id)
+    if not robot:
+        raise HTTPException(status_code=404, detail="Robot not found")
+    lab = await db.get(Lab, robot.lab_id)
+    if not lab or lab.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Robot not found")
+    if "notes" not in body.model_fields_set:
+        return await get_robot_cloud(robot_id, db, user)
+    if body.notes is None or (isinstance(body.notes, str) and not body.notes.strip()):
+        robot.notes = None
+    else:
+        robot.notes = body.notes.strip()
+    await db.flush()
+    return await get_robot_cloud(robot_id, db, user)
+
+
+@app.put("/api/cloud/robots/{robot_id}/runs/{run_id}/note")
+async def put_robot_run_note(
+    robot_id: str,
+    run_id: str,
+    body: CloudRunNotePut,
+    db: AsyncSession = Depends(get_agent_db_session),
+    user: Any = Depends(get_current_user),
+):
+    """Create or update detail and/or inline run notes. Include ``note`` and/or ``inline`` keys (empty clears that slot)."""
+    from datetime import datetime, timezone
+
+    from models import Lab, Robot, RobotRunNote
+
+    rid = (run_id or "").strip()
+    if not rid or len(rid) > 128:
+        raise HTTPException(status_code=400, detail="Invalid run_id")
+
+    robot = await db.get(Robot, robot_id)
+    if not robot:
+        raise HTTPException(status_code=404, detail="Robot not found")
+    lab = await db.get(Lab, robot.lab_id)
+    if not lab or lab.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Robot not found")
+
+    fs = body.model_fields_set
+    if not fs:
+        raise HTTPException(
+            status_code=400,
+            detail="Include at least one of: note (detail), inline",
+        )
+
+    now = datetime.now(timezone.utc)
+    existing = await db.get(RobotRunNote, (robot_id, rid))
+
+    detail_text = existing.body if existing else ""
+    inline_val = existing.inline_body if existing else None
+    inline_ts = existing.inline_updated_at if existing else None
+
+    if "note" in fs:
+        if body.note is None:
+            detail_text = ""
+        else:
+            detail_text = str(body.note).strip()[:200_000]
+    if "inline" in fs:
+        if body.inline is None:
+            inline_val = None
+            inline_ts = None
+        else:
+            ir = str(body.inline).strip()
+            if ir:
+                inline_val = ir[:200_000]
+                inline_ts = now
+            else:
+                inline_val = None
+                inline_ts = None
+
+    has_detail = bool(detail_text and detail_text.strip())
+    has_inline = bool(inline_val and str(inline_val).strip())
+
+    if not has_detail and not has_inline:
+        if existing:
+            await db.execute(
+                delete(RobotRunNote).where(
+                    RobotRunNote.robot_id == robot_id,
+                    RobotRunNote.run_id == rid,
+                )
+            )
+        await db.flush()
+        return await get_robot_cloud(robot_id, db, user)
+
+    if existing:
+        if "note" in fs:
+            existing.body = detail_text if has_detail else ""
+            existing.updated_at = now
+        if "inline" in fs:
+            existing.inline_body = inline_val if has_inline else None
+            existing.inline_updated_at = inline_ts if has_inline else None
+    else:
+        db.add(
+            RobotRunNote(
+                robot_id=robot_id,
+                run_id=rid,
+                body=detail_text if has_detail else "",
+                updated_at=now,
+                inline_body=inline_val if has_inline else None,
+                inline_updated_at=inline_ts if has_inline else None,
+            )
+        )
+    await db.flush()
+    return await get_robot_cloud(robot_id, db, user)
 
 
 def _is_valid_robot_address(ip: str) -> bool:
@@ -1311,7 +1488,9 @@ def robot_http_error(message: str, code: str, status_code: int = 503) -> HTTPExc
 # --- Robot IP store (JSON file, env fallback) ---
 # Path to JSON file storing the list of configured robot IPs (key "ips").
 ROBOT_IPS_FILE = Path(__file__).resolve().parent / "robot_ips.json"
-# Lock for thread-safe read/write of robot_ips.json.
+# Local fleet: free-form notes per robot IP (key "notes": { "10.0.0.1": "..." }).
+ROBOT_NOTES_FILE = Path(__file__).resolve().parent / "robot_notes.json"
+# Lock for thread-safe read/write of robot_ips.json and robot_notes.json.
 _store_lock = threading.RLock()
 
 
@@ -1338,10 +1517,88 @@ def _save_robot_ips(ips: list[str]) -> None:
     ROBOT_IPS_FILE.write_text(json.dumps({"ips": ips}, indent=2))
 
 
+def _utc_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_local_run_notes(raw: Any) -> dict[str, dict[str, dict[str, dict[str, str]]]]:
+    """run_notes[ip][run_id][detail|inline] = {body, updated_at}."""
+    out: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for ip, runs in raw.items():
+        if not isinstance(ip, str) or not _is_valid_robot_address(ip):
+            continue
+        if not isinstance(runs, dict):
+            continue
+        ipk = ip.strip()
+        out[ipk] = {}
+        for rid, slots in runs.items():
+            if not isinstance(rid, str) or len(rid) > 128:
+                continue
+            if not isinstance(slots, dict):
+                continue
+            entry: dict[str, dict[str, str]] = {}
+            for slot in ("detail", "inline"):
+                chunk = slots.get(slot)
+                if isinstance(chunk, dict):
+                    b = chunk.get("body")
+                    ts = chunk.get("updated_at")
+                    if isinstance(b, str) and b.strip():
+                        entry[slot] = {
+                            "body": b.strip()[:200_000],
+                            "updated_at": ts if isinstance(ts, str) else _utc_iso(),
+                        }
+            if entry:
+                out[ipk][rid] = entry
+    return out
+
+
+def _read_notes_store_unlocked() -> dict[str, Any]:
+    """Full local notes file: ``notes`` (per-IP dashboard) + ``run_notes`` (per IP/run/slot). Caller holds _store_lock."""
+    if not ROBOT_NOTES_FILE.exists():
+        return {"notes": {}, "run_notes": {}}
+    try:
+        data = json.loads(ROBOT_NOTES_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"notes": {}, "run_notes": {}}
+    notes: dict[str, str] = {}
+    raw_notes = data.get("notes") or {}
+    if isinstance(raw_notes, dict):
+        for k, v in raw_notes.items():
+            if isinstance(k, str) and isinstance(v, str) and _is_valid_robot_address(k):
+                notes[k.strip()] = v
+    run_notes = _normalize_local_run_notes(data.get("run_notes"))
+    return {"notes": notes, "run_notes": run_notes}
+
+
+def _write_notes_store_unlocked(store: dict[str, Any]) -> None:
+    """Persist combined store. Caller holds _store_lock."""
+    payload = {"notes": store.get("notes") or {}, "run_notes": store.get("run_notes") or {}}
+    ROBOT_NOTES_FILE.write_text(json.dumps(payload, indent=2))
+
+
+def _load_robot_notes() -> dict[str, str]:
+    """Return all local fleet dashboard notes keyed by robot address."""
+    with _store_lock:
+        return dict(_read_notes_store_unlocked().get("notes") or {})
+
+
+def _save_robot_notes(notes: dict[str, str]) -> None:
+    """Update dashboard notes only; preserves run_notes. Caller must hold _store_lock."""
+    store = _read_notes_store_unlocked()
+    store["notes"] = notes
+    _write_notes_store_unlocked(store)
+
+
 @app.get("/api/robots")
-def list_robots() -> dict[str, list[str]]:
-    """Return configured robot IPs from the store (seeded from ROBOT_IPS env on first load if empty)."""
-    return {"ips": _load_robot_ips()}
+def list_robots() -> dict[str, Any]:
+    """Return configured robot IPs and optional per-IP notes (local fleet JSON store)."""
+    ips = _load_robot_ips()
+    notes = _load_robot_notes()
+    return {"ips": ips, "notes": notes}
 
 
 @app.get("/api/fleet/snapshot")
@@ -1418,10 +1675,101 @@ def add_robots_bulk(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
 def remove_robot(ip: str) -> dict[str, list[str]]:
     """Remove a robot IP from the store. Returns the updated list of IPs."""
     validate_ip(ip)
+    key = ip.strip()
     with _store_lock:
-        ips = [x for x in _load_robot_ips() if x != ip.strip()]
+        ips = [x for x in _load_robot_ips() if x != key]
         _save_robot_ips(ips)
+        store = _read_notes_store_unlocked()
+        store["notes"].pop(key, None)
+        store["run_notes"].pop(key, None)
+        _write_notes_store_unlocked(store)
     return {"ips": ips}
+
+
+@app.patch("/api/robots/{ip}/notes")
+def patch_robot_notes_by_ip(ip: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Set or clear dashboard notes for one robot (local JSON store). Body: {\"notes\": \"...\" | null}."""
+    validate_ip(ip)
+    key = ip.strip()
+    if "notes" not in body:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": 'Body must include "notes" (string or null)', "code": "INVALID_BODY"},
+        )
+    raw = body.get("notes")
+    with _store_lock:
+        store = _read_notes_store_unlocked()
+        notes: dict[str, str] = dict(store.get("notes") or {})
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            notes.pop(key, None)
+        elif isinstance(raw, str):
+            notes[key] = raw.strip()[:200_000]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": '"notes" must be a string or null', "code": "INVALID_BODY"},
+            )
+        store["notes"] = notes
+        _write_notes_store_unlocked(store)
+        out = notes.get(key)
+    return {"ip": key, "notes": out}
+
+
+@app.get("/api/robots/{ip}/run-notes")
+def get_local_run_notes(ip: str) -> dict[str, Any]:
+    """Per-run notes (detail + inline) for one robot IP from local JSON store."""
+    validate_ip(ip)
+    key = ip.strip()
+    with _store_lock:
+        store = _read_notes_store_unlocked()
+    runs = (store.get("run_notes") or {}).get(key, {})
+    return {"ip": key, "runs": runs}
+
+
+@app.patch("/api/robots/{ip}/runs/{run_id}/notes")
+def patch_local_run_notes(ip: str, run_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Update detail and/or inline run notes. Include ``detail`` and/or ``inline`` keys (string or null; empty clears)."""
+    validate_ip(ip)
+    key = ip.strip()
+    rid = (run_id or "").strip()
+    if not rid or len(rid) > 128:
+        raise HTTPException(status_code=400, detail="Invalid run_id")
+    if not any(k in body for k in ("detail", "inline")):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": 'Include at least one of "detail", "inline"', "code": "INVALID_BODY"},
+        )
+    now = _utc_iso()
+    with _store_lock:
+        store = _read_notes_store_unlocked()
+        run_notes: dict[str, Any] = dict(store.get("run_notes") or {})
+        by_ip: dict[str, Any] = dict(run_notes.get(key) or {})
+        entry: dict[str, Any] = dict(by_ip.get(rid) or {})
+        for slot in ("detail", "inline"):
+            if slot not in body:
+                continue
+            val = body.get(slot)
+            if val is None or (isinstance(val, str) and not val.strip()):
+                entry.pop(slot, None)
+            elif isinstance(val, str):
+                entry[slot] = {"body": val.strip()[:200_000], "updated_at": now}
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": f'"{slot}" must be a string or null', "code": "INVALID_BODY"},
+                )
+        if entry:
+            by_ip[rid] = entry
+        else:
+            by_ip.pop(rid, None)
+        if by_ip:
+            run_notes[key] = by_ip
+        else:
+            run_notes.pop(key, None)
+        store["run_notes"] = run_notes
+        _write_notes_store_unlocked(store)
+        out_entry = by_ip.get(rid) or {}
+    return {"ip": key, "run_id": rid, "detail": out_entry.get("detail"), "inline": out_entry.get("inline")}
 
 
 @app.get("/api/robots/{ip}/health")

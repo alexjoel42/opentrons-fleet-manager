@@ -34,6 +34,10 @@ export interface RobotCardViewProps {
   modulesData: Array<Record<string, unknown>> | undefined | null;
   pipettesData: unknown;
   runsData: RunsResponse | null | undefined;
+  /** Local fleet dashboard notes (from `GET /api/robots`); editable when `onSaveRobotNotes` is set. */
+  robotNotes?: string | null;
+  onSaveRobotNotes?: (text: string) => void;
+  isSavingRobotNotes?: boolean;
 }
 
 /** Presentational fleet card; used by Dashboard with snapshot data or by RobotCard with live hooks. */
@@ -48,12 +52,20 @@ export function RobotCardView({
   modulesData,
   pipettesData,
   runsData,
+  robotNotes,
+  onSaveRobotNotes,
+  isSavingRobotNotes,
 }: RobotCardViewProps) {
   const { addNotification } = useNotifications();
   const [zipPending, setZipPending] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
   const lastNotifiedRunId = useRef<string | null>(null);
   const lastNotifiedPaused = useRef(false);
   const lastNotifiedError = useRef(false);
+
+  useEffect(() => {
+    setNotesDraft(robotNotes ?? '');
+  }, [ip, robotNotes]);
 
   const runsList = Array.isArray(runsData?.data) ? runsData.data : [];
   const currentRun = runsList.find((r) => r.current);
@@ -214,6 +226,40 @@ export function RobotCardView({
             </button>
           )}
         </div>
+        {onSaveRobotNotes != null && (
+          <div
+            className="mb-4"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Notes
+            </span>
+            <textarea
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              rows={3}
+              aria-label={`Notes for robot ${ip}`}
+              className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="Calibration, quirks, who to ping…"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const t = notesDraft.trim();
+                onSaveRobotNotes(t);
+              }}
+              disabled={isSavingRobotNotes}
+              className="mt-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+            >
+              {isSavingRobotNotes ? 'Saving…' : 'Save notes'}
+            </button>
+          </div>
+        )}
         {pipetteLines.length > 0 && (
           <div className="mb-4">
             <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">

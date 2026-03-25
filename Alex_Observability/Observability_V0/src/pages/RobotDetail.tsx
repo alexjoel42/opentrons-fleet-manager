@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQueries } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRobot, useRobotLogs, useRobotRuns } from '../hooks';
 import { UI_POLL_INTERVAL_MS } from '../lib/queryPollMs';
-import { formatPipettes, formatModules, orDash } from '../utils/robotFormat';
-import { fetchTroubleshootingZip, fetchRobotRun, fetchRunEndpointCheck, getRunDisplayName } from '../api/robotApi';
+import { formatPipettes, formatModules, formatNoteTimestamp, orDash } from '../utils/robotFormat';
+import {
+  fetchTroubleshootingZip,
+  fetchRobotRun,
+  fetchRunEndpointCheck,
+  fetchLocalRunNotes,
+  patchLocalRunNotes,
+  getRunDisplayName,
+} from '../api/robotApi';
 import type { RunListItem } from '../api/robotApi';
 
 function triggerZipDownload(blob: Blob, filename: string) {
@@ -19,10 +26,44 @@ function triggerZipDownload(blob: Blob, filename: string) {
 export function RobotDetail() {
   const { ip } = useParams<{ ip: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const robot = useRobot(ip ?? null);
   const logs = useRobotLogs(ip ?? null);
   const runs = useRobotRuns(ip ?? null);
   const [zipPendingFor, setZipPendingFor] = useState<string | null>(null);
+
+  const runNotesQuery = useQuery({
+    queryKey: ['robot', ip, 'run-notes'],
+    queryFn: () => fetchLocalRunNotes(ip!),
+    enabled: Boolean(ip),
+    staleTime: UI_POLL_INTERVAL_MS,
+  });
+
+  const [pendingRunNotes, setPendingRunNotes] = useState<
+    Record<string, { detail?: string; inline?: string }>
+  >({});
+
+  useEffect(() => {
+    setPendingRunNotes({});
+  }, [ip]);
+
+  const saveRunSlotMutation = useMutation({
+    mutationFn: ({
+      runId,
+      slot,
+      text,
+    }: {
+      runId: string;
+      slot: 'detail' | 'inline';
+      text: string;
+    }) => {
+      const t = text.trim();
+      return patchLocalRunNotes(ip!, runId, slot === 'detail' ? { detail: t || null } : { inline: t || null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['robot', ip, 'run-notes'] });
+    },
+  });
 
   if (!ip) {
     return (
@@ -97,6 +138,36 @@ export function RobotDetail() {
     },
     {}
   );
+
+  const runsNoteMap = runNotesQuery.data?.runs ?? {};
+
+  const displaySlot = (runId: string, slot: 'detail' | 'inline') => {
+    const p = pendingRunNotes[runId]?.[slot];
+    if (p !== undefined) return p;
+    return runsNoteMap[runId]?.[slot]?.body ?? '';
+  };
+
+  const slotUpdatedAt = (runId: string, slot: 'detail' | 'inline') =>
+    runsNoteMap[runId]?.[slot]?.updated_at;
+
+  const commitSlot = (runId: string, slot: 'detail' | 'inline') => {
+    const text = displaySlot(runId, slot);
+    saveRunSlotMutation.mutate(
+      { runId, slot, text },
+      {
+        onSuccess: () => {
+          setPendingRunNotes((prev) => {
+            const next = { ...prev };
+            const row = { ...next[runId] };
+            delete row[slot];
+            if (Object.keys(row).length === 0) delete next[runId];
+            else next[runId] = row;
+            return next;
+          });
+        },
+      },
+    );
+  };
 
   return (
     <div className="max-w-3xl">
@@ -199,40 +270,89 @@ export function RobotDetail() {
             <p className="text-muted-foreground">No runs.</p>
           )}
           {runsList.length > 0 && (
-            <ul className="space-y-3">
+            <ul className="space-y-6">
               {runsList.map((run) => {
                 const hasError = run.errors && run.errors.length > 0;
                 const pending = zipPendingFor === run.id;
                 const displayName = getRunDisplayLabel(run);
                 const check = runCheckById[run.id] ?? { available: false, loading: true };
                 const canViewOrZip = check.available;
+                const savingDetail =
+                  saveRunSlotMutation.isPending &&
+                  saveRunSlotMutation.variables?.runId === run.id &&
+                  saveRunSlotMutation.variables?.slot === 'detail';
+                const savingInline =
+                  saveRunSlotMutation.isPending &&
+                  saveRunSlotMutation.variables?.runId === run.id &&
+                  saveRunSlotMutation.variables?.slot === 'inline';
+                const inlineTs = formatNoteTimestamp(slotUpdatedAt(run.id, 'inline'));
+                const detailTs = formatNoteTimestamp(slotUpdatedAt(run.id, 'detail'));
                 return (
-                  <li key={run.id} className="flex flex-wrap items-center gap-2">
-                    <span className="text-foreground">
-                      {run.current && <strong>Current · </strong>}
-                      {displayName} — {orDash(run.status)}
-                      {hasError && <span className="text-error"> (error)</span>}
-                    </span>
-                    {check.loading ? (
-                      <span className="rounded-lg px-2 py-1 text-xs text-muted-foreground" title="Validating endpoint…">
-                        Checking…
-                      </span>
-                    ) : canViewOrZip ? (
-                      <Link
-                        to={`/robot/${encodeURIComponent(ip!)}/runs/${encodeURIComponent(run.id)}`}
-                        className="rounded-lg px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        title="Get run"
-                      >
-                        View
-                      </Link>
-                    ) : (
-                      <span
-                        className="rounded-lg px-2 py-1 text-xs text-muted-foreground opacity-70"
-                        title="Run not available from robot (endpoint check failed)"
-                      >
-                        View (unavailable)
-                      </span>
-                    )}
+                  <li key={run.id} className="rounded-lg border border-border bg-muted/15 p-4">
+                    <div className="flex flex-wrap items-start gap-3">
+                      <div className="min-w-0 flex-1 text-sm text-foreground">
+                        {run.current && <strong>Current · </strong>}
+                        {displayName} — {orDash(run.status)}
+                        {hasError && <span className="text-error"> (error)</span>}
+                      </div>
+                      <div className="flex flex-wrap items-start gap-3">
+                        {check.loading ? (
+                          <span className="rounded-lg px-2 py-1 text-xs text-muted-foreground" title="Validating endpoint…">
+                            Checking…
+                          </span>
+                        ) : canViewOrZip ? (
+                          <Link
+                            to={`/robot/${encodeURIComponent(ip!)}/runs/${encodeURIComponent(run.id)}`}
+                            className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            title="Get run"
+                          >
+                            View
+                          </Link>
+                        ) : (
+                          <span
+                            className="shrink-0 rounded-lg px-2 py-1 text-xs text-muted-foreground opacity-70"
+                            title="Run not available from robot (endpoint check failed)"
+                          >
+                            View (unavailable)
+                          </span>
+                        )}
+                        <div
+                          className="min-w-[10rem] max-w-xs shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <label
+                            className="mb-0.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                            htmlFor={`run-inline-${run.id}`}
+                          >
+                            Quick note
+                          </label>
+                          <textarea
+                            id={`run-inline-${run.id}`}
+                            value={displaySlot(run.id, 'inline')}
+                            onChange={(e) =>
+                              setPendingRunNotes((p) => ({
+                                ...p,
+                                [run.id]: { ...p[run.id], inline: e.target.value },
+                              }))
+                            }
+                            rows={2}
+                            className="w-full resize-y rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            placeholder="Short reminder…"
+                          />
+                          {inlineTs ? (
+                            <p className="mt-0.5 text-[10px] text-muted-foreground">Saved {inlineTs}</p>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => commitSlot(run.id, 'inline')}
+                            disabled={savingInline}
+                            className="mt-1 rounded border border-border bg-card px-2 py-0.5 text-[10px] font-medium hover:bg-muted disabled:opacity-60"
+                          >
+                            {savingInline ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                     {(run.current || hasError) && (
                       <button
                         type="button"
@@ -244,12 +364,44 @@ export function RobotDetail() {
                             .then((blob) => triggerZipDownload(blob, 'troubleshooting.zip'))
                             .finally(() => setZipPendingFor(null));
                         }}
-                        className="rounded-lg border border-accent bg-transparent px-3 py-1.5 text-sm font-medium text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                        className="mt-3 rounded-lg border border-accent bg-transparent px-3 py-1.5 text-sm font-medium text-accent hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
                         title={!canViewOrZip ? 'Run not available from robot' : undefined}
                       >
                         {pending ? 'Downloading…' : 'Download troubleshooting zip'}
                       </button>
                     )}
+                    <div className="mt-4 border-t border-border pt-3">
+                      <label
+                        className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                        htmlFor={`run-detail-${run.id}`}
+                      >
+                        Run notes
+                      </label>
+                      <textarea
+                        id={`run-detail-${run.id}`}
+                        value={displaySlot(run.id, 'detail')}
+                        onChange={(e) =>
+                          setPendingRunNotes((p) => ({
+                            ...p,
+                            [run.id]: { ...p[run.id], detail: e.target.value },
+                          }))
+                        }
+                        rows={3}
+                        className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        placeholder="Longer context for this run…"
+                      />
+                      {detailTs ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Saved {detailTs}</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => commitSlot(run.id, 'detail')}
+                        disabled={savingDetail}
+                        className="mt-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+                      >
+                        {savingDetail ? 'Saving…' : 'Save run notes'}
+                      </button>
+                    </div>
                   </li>
                 );
               })}

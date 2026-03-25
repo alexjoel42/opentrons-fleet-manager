@@ -17,10 +17,72 @@ export interface RobotErrorBody {
   code: string;
 }
 
-export async function fetchRobotList(): Promise<{ ips: string[] }> {
+export interface RobotListResponse {
+  ips: string[];
+  /** Local fleet only: dashboard notes keyed by robot IP. */
+  notes?: Record<string, string>;
+}
+
+export async function fetchRobotList(): Promise<RobotListResponse> {
   const res = await fetch(`${BASE}/api/robots`);
   if (!res.ok) throw new Error('Failed to load robot list');
   return res.json();
+}
+
+/** Save or clear (empty string) local fleet notes for one robot IP. */
+export interface RunNoteSlot {
+  body: string;
+  updated_at: string;
+}
+
+/** Per-run notes from local JSON store (`detail` = longer run note, `inline` = quick note by View). */
+export type LocalRunNotesRuns = Record<string, { detail?: RunNoteSlot; inline?: RunNoteSlot }>;
+
+export async function fetchLocalRunNotes(ip: string): Promise<{ ip: string; runs: LocalRunNotesRuns }> {
+  const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/run-notes`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  const runs = (data as { runs?: unknown }).runs;
+  return {
+    ip: (data as { ip?: string }).ip ?? ip,
+    runs: runs != null && typeof runs === 'object' ? (runs as LocalRunNotesRuns) : {},
+  };
+}
+
+export async function patchLocalRunNotes(
+  ip: string,
+  runId: string,
+  patch: { detail?: string | null; inline?: string | null },
+): Promise<{ ip: string; run_id: string; detail?: RunNoteSlot; inline?: RunNoteSlot }> {
+  const body: Record<string, string | null> = {};
+  if (Object.prototype.hasOwnProperty.call(patch, 'detail')) {
+    body.detail = patch.detail === '' || patch.detail == null ? null : patch.detail;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'inline')) {
+    body.inline = patch.inline === '' || patch.inline == null ? null : patch.inline;
+  }
+  const res = await fetch(
+    `${BASE}/api/robots/${encodeURIComponent(ip)}/runs/${encodeURIComponent(runId)}/notes`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as { ip: string; run_id: string; detail?: RunNoteSlot; inline?: RunNoteSlot };
+}
+
+export async function patchRobotNotes(ip: string, notes: string | null): Promise<{ ip: string; notes: string | null }> {
+  const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/notes`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes: notes === '' || notes == null ? null : notes }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as { ip: string; notes: string | null };
 }
 
 export async function addRobotIp(ip: string): Promise<{ ips: string[] }> {

@@ -64,3 +64,11 @@ export function formatModules(modules: Array<Record<string, unknown>>): string[]
     return serial ? `${type} · ${serial}` : type;
   });
 }
+
+/** Short locale date/time for persisted note timestamps (ISO strings from the API). */
+export function formatNoteTimestamp(iso: string | null | undefined): string {
+  if (iso == null || !String(iso).trim()) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}

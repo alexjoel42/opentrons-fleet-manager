@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, PrimaryKeyConstraint, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -72,11 +72,29 @@ class Robot(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     lab: Mapped[Lab] = relationship("Lab", back_populates="robots")
     telemetry: Mapped["TelemetrySnapshot | None"] = relationship(
         "TelemetrySnapshot", back_populates="robot", uselist=False, cascade="all, delete-orphan"
     )
+    run_notes: Mapped[list["RobotRunNote"]] = relationship(
+        "RobotRunNote", back_populates="robot", cascade="all, delete-orphan"
+    )
+
+
+class RobotRunNote(Base):
+    __tablename__ = "robot_run_notes"
+    __table_args__ = (PrimaryKeyConstraint("robot_id", "run_id"),)
+
+    robot_id: Mapped[str] = mapped_column(String(32), ForeignKey("robots.id", ondelete="CASCADE"), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    inline_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inline_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    robot: Mapped[Robot] = relationship("Robot", back_populates="run_notes")
 
 
 class TelemetrySnapshot(Base):
@@ -106,3 +124,4 @@ class Session(Base):
 Index("ix_robots_lab_id", Robot.lab_id)
 Index("ix_telemetry_snapshots_robot_id", TelemetrySnapshot.robot_id)
 Index("ix_robots_last_seen_at", Robot.last_seen_at)
+Index("ix_robot_run_notes_robot_id", RobotRunNote.robot_id)

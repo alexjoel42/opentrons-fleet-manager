@@ -91,6 +91,15 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">No run list in last telemetry.</p>
         )}
+        {(robot.notes?.trim() || (robot.run_note_count ?? 0) > 0) && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Notes</span>
+            {robot.notes?.trim() ? ' · robot' : ''}
+            {(robot.run_note_count ?? 0) > 0
+              ? ` · ${robot.run_note_count} run${robot.run_note_count === 1 ? '' : 's'}`
+              : ''}
+          </p>
+        )}
       </div>
     </Link>
   );

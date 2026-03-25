@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 .venv
 backend/robot_ips.json
+backend/robot_notes.json
 dist
 dist-ssr
 agent/dist

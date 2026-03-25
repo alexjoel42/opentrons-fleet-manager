@@ -5,7 +5,7 @@ import { useRobotList, useFleetSnapshot } from '../hooks';
 import { RobotCardView } from '../components/RobotCard';
 import { FleetStatusSummaryTable } from '../components/FleetStatusSummaryTable';
 import { ImportRobotIps } from '../components/ImportRobotIps';
-import { addRobotIp, removeRobotIp } from '../api/robotApi';
+import { addRobotIp, patchRobotNotes, removeRobotIp } from '../api/robotApi';
 import {
   FLEET_FILTER_OPTIONS,
   deriveRobotFleetVisualStatus,
@@ -21,6 +21,7 @@ export function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<FleetStatusFilter>('all');
 
   const ips = data?.ips ?? [];
+  const notesByIp = data?.notes ?? {};
   const fleet = useFleetSnapshot(ips.length > 0);
 
   const addMutation = useMutation({
@@ -37,6 +38,14 @@ export function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['robots', 'list'] });
       queryClient.invalidateQueries({ queryKey: ['fleet', 'snapshot'] });
+    },
+  });
+
+  const saveNotesMutation = useMutation({
+    mutationFn: ({ ip, text }: { ip: string; text: string }) =>
+      patchRobotNotes(ip, text.trim() ? text.trim() : null),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['robots', 'list'] });
     },
   });
 
@@ -273,6 +282,11 @@ export function Dashboard() {
                     modulesData={row?.modules ?? null}
                     pipettesData={row?.pipettes ?? null}
                     runsData={row?.runs ?? null}
+                    robotNotes={notesByIp[ip] ?? null}
+                    onSaveRobotNotes={(text) => saveNotesMutation.mutate({ ip, text })}
+                    isSavingRobotNotes={
+                      saveNotesMutation.isPending && saveNotesMutation.variables?.ip === ip
+                    }
                   />
                 );
               })}
