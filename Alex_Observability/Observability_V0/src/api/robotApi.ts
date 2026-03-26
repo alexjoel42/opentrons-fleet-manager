@@ -12,6 +12,13 @@ const BASE =
     ? ''
     : ((import.meta.env.VITE_API_URL as string) ?? '');
 
+/** Sent with local note PATCHes for operator name when stamping notes (see NOTES_OPERATOR_NAME). */
+function localNotesHeaders(): HeadersInit {
+  const name = (import.meta.env.VITE_NOTES_OPERATOR_NAME as string | undefined)?.trim();
+  if (!name) return { 'Content-Type': 'application/json' };
+  return { 'Content-Type': 'application/json', 'X-Notes-Operator': name };
+}
+
 export interface RobotErrorBody {
   error: string;
   code: string;
@@ -65,7 +72,7 @@ export async function patchLocalRunNotes(
     `${BASE}/api/robots/${encodeURIComponent(ip)}/runs/${encodeURIComponent(runId)}/notes`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: localNotesHeaders(),
       body: JSON.stringify(body),
     },
   );
@@ -77,7 +84,7 @@ export async function patchLocalRunNotes(
 export async function patchRobotNotes(ip: string, notes: string | null): Promise<{ ip: string; notes: string | null }> {
   const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/notes`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: localNotesHeaders(),
     body: JSON.stringify({ notes: notes === '' || notes == null ? null : notes }),
   });
   const data = await res.json().catch(() => ({}));

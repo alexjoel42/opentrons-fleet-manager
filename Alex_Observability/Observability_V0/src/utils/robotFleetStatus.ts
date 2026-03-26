@@ -1,4 +1,4 @@
-import type { RunsResponse } from '../api/robotApi';
+import type { RunListItem, RunsResponse } from '../api/robotApi';
 
 /** Normalized fleet card status for styling + filtering */
 export type RobotFleetVisualStatus =
@@ -81,6 +81,21 @@ export function deriveRobotFleetVisualStatus(input: {
   if (hs === 'stopped') return 'stopped';
   if (hs === 'succeeded') return 'succeeded';
 
+  return 'idle';
+}
+
+/** Visual status for a single run row (protocol list, detail pages). */
+export function deriveRunListItemFleetStatus(run: RunListItem): RobotFleetVisualStatus {
+  const hasRunError = Array.isArray(run.errors) && run.errors.length > 0;
+  if (hasRunError) return 'failed';
+  const rs = parseRunStatus(run);
+  if (rs.includes('awaiting') && rs.includes('recovery')) return 'awaiting-recovery';
+  if (rs === 'awaiting-recovery') return 'awaiting-recovery';
+  if (rs === 'running') return 'running';
+  if (rs === 'paused') return 'paused';
+  if (rs === 'failed') return 'failed';
+  if (rs === 'succeeded' || rs === 'succeed') return 'succeeded';
+  if (rs === 'stopped') return 'stopped';
   return 'idle';
 }
 

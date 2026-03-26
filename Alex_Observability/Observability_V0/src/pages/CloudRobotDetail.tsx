@@ -16,6 +16,7 @@ import {
   cloudRobotCardSubtitle,
   cloudRobotCardTitle,
   coerceRunsForFleetStatus,
+  telemetryApiVersion,
   telemetryHealthLooksSparse,
   telemetryRobotName,
   telemetrySerial,
@@ -147,6 +148,7 @@ export function CloudRobotDetail() {
   const stale = isStale(robot.last_seen_at);
   const label = lastSeenLabel(robot.last_seen_at);
   const health = robot.health && typeof robot.health === 'object' ? robot.health : null;
+  const softwareVersion = telemetryApiVersion(health);
   const displayName = cloudRobotCardTitle({
     id: robot.id,
     name: robot.name,
@@ -275,9 +277,9 @@ export function CloudRobotDetail() {
                   <strong className="text-muted-foreground">Model:</strong> {String(health.robot_model)}
                 </span>
               ) : null}
-              {health.api_version != null && String(health.api_version).trim() ? (
+              {softwareVersion ? (
                 <span>
-                  <strong className="text-muted-foreground">API:</strong> {String(health.api_version)}
+                  <strong className="text-muted-foreground">Software:</strong> {softwareVersion}
                 </span>
               ) : null}
               {health.date != null && String(health.date).trim() ? (

@@ -35,6 +35,8 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from note_compliance import local_operator_name_from_request, stamp_note_body
+
 _log = logging.getLogger(__name__)
 
 # Max POST /api/labs/{id}/tokens per lab per UTC day (each successful call creates a LabAgentToken row).
@@ -1342,7 +1344,7 @@ async def patch_robot_cloud_notes(
     db: AsyncSession = Depends(get_agent_db_session),
     user: Any = Depends(get_current_user),
 ):
-    """Update robot-level notes (owner's lab only)."""
+    """Update robot-level notes (owner's lab only). Notes are stamped with UTC time and signer email."""
     from models import Lab, Robot
 
     robot = await db.get(Robot, robot_id)
@@ -1356,7 +1358,8 @@ async def patch_robot_cloud_notes(
     if body.notes is None or (isinstance(body.notes, str) and not body.notes.strip()):
         robot.notes = None
     else:
-        robot.notes = body.notes.strip()
+        author = (getattr(user, "email", None) or "").strip() or "Unknown"
+        robot.notes = stamp_note_body(body.notes.strip()[:200_000], author)
     await db.flush()
     return await get_robot_cloud(robot_id, db, user)
 
@@ -1384,6 +1387,8 @@ async def put_robot_run_note(
     lab = await db.get(Lab, robot.lab_id)
     if not lab or lab.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Robot not found")
+
+    author = (getattr(user, "email", None) or "").strip() or "Unknown"
 
     fs = body.model_fields_set
     if not fs:
@@ -1416,6 +1421,12 @@ async def put_robot_run_note(
             else:
                 inline_val = None
                 inline_ts = None
+
+    # Stamp only slots the client sent; avoids re-stamping detail when only inline changes.
+    if "note" in fs and detail_text and detail_text.strip():
+        detail_text = stamp_note_body(detail_text, author)
+    if "inline" in fs and inline_val and str(inline_val).strip():
+        inline_val = stamp_note_body(str(inline_val), author)
 
     has_detail = bool(detail_text and detail_text.strip())
     has_inline = bool(inline_val and str(inline_val).strip())
@@ -1687,7 +1698,11 @@ def remove_robot(ip: str) -> dict[str, list[str]]:
 
 
 @app.patch("/api/robots/{ip}/notes")
-def patch_robot_notes_by_ip(ip: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def patch_robot_notes_by_ip(
+    ip: str,
+    request: Request,
+    body: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
     """Set or clear dashboard notes for one robot (local JSON store). Body: {\"notes\": \"...\" | null}."""
     validate_ip(ip)
     key = ip.strip()
@@ -1697,13 +1712,14 @@ def patch_robot_notes_by_ip(ip: str, body: dict[str, Any] = Body(...)) -> dict[s
             detail={"error": 'Body must include "notes" (string or null)', "code": "INVALID_BODY"},
         )
     raw = body.get("notes")
+    op_name = local_operator_name_from_request(request)
     with _store_lock:
         store = _read_notes_store_unlocked()
         notes: dict[str, str] = dict(store.get("notes") or {})
         if raw is None or (isinstance(raw, str) and not raw.strip()):
             notes.pop(key, None)
         elif isinstance(raw, str):
-            notes[key] = raw.strip()[:200_000]
+            notes[key] = stamp_note_body(raw.strip()[:200_000], op_name)
         else:
             raise HTTPException(
                 status_code=400,
@@ -1727,7 +1743,12 @@ def get_local_run_notes(ip: str) -> dict[str, Any]:
 
 
 @app.patch("/api/robots/{ip}/runs/{run_id}/notes")
-def patch_local_run_notes(ip: str, run_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def patch_local_run_notes(
+    ip: str,
+    run_id: str,
+    request: Request,
+    body: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
     """Update detail and/or inline run notes. Include ``detail`` and/or ``inline`` keys (string or null; empty clears)."""
     validate_ip(ip)
     key = ip.strip()
@@ -1740,6 +1761,7 @@ def patch_local_run_notes(ip: str, run_id: str, body: dict[str, Any] = Body(...)
             detail={"error": 'Include at least one of "detail", "inline"', "code": "INVALID_BODY"},
         )
     now = _utc_iso()
+    op_name = local_operator_name_from_request(request)
     with _store_lock:
         store = _read_notes_store_unlocked()
         run_notes: dict[str, Any] = dict(store.get("run_notes") or {})
@@ -1752,7 +1774,10 @@ def patch_local_run_notes(ip: str, run_id: str, body: dict[str, Any] = Body(...)
             if val is None or (isinstance(val, str) and not val.strip()):
                 entry.pop(slot, None)
             elif isinstance(val, str):
-                entry[slot] = {"body": val.strip()[:200_000], "updated_at": now}
+                entry[slot] = {
+                    "body": stamp_note_body(val.strip()[:200_000], op_name),
+                    "updated_at": now,
+                }
             else:
                 raise HTTPException(
                     status_code=400,

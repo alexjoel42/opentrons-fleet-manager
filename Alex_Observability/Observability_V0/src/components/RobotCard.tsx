@@ -6,6 +6,7 @@ import { useRobotPipettes } from '../hooks/useRobotPipettes';
 import { useRobotRuns } from '../hooks/useRobotRuns';
 import { useNotifications } from '../lib/NotificationContext';
 import { formatPipettes, formatModules, orDash } from '../utils/robotFormat';
+import { telemetryApiVersion, telemetryLastFailedRunLine } from '../utils/telemetryHealth';
 import {
   FLEET_STATUS_LABELS,
   deriveRobotFleetVisualStatus,
@@ -138,6 +139,8 @@ export function RobotCardView({
 
   const robotName = orDash(healthData?.name);
   const titleText = robotName !== '—' ? `${robotName} · ${ip}` : ip;
+  const softwareVersion = telemetryApiVersion(healthData ?? null);
+  const lastFailedLine = telemetryLastFailedRunLine(runsData ?? null);
   const pipetteLines = pipettesData != null ? formatPipettes(pipettesData) : [];
   const moduleLines = Array.isArray(modulesData) ? formatModules(modulesData) : [];
   const runLabel = currentRun
@@ -208,12 +211,25 @@ export function RobotCardView({
               {message}
             </p>
           )}
+          {softwareVersion ? (
+            <span className="text-xs text-muted-foreground" title="Robot software version (health.api_version)">
+              Software: {softwareVersion}
+            </span>
+          ) : null}
         </div>
         <div className="mb-4">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Run
           </span>
           <span className="block text-sm text-foreground">{runLabel}</span>
+          {lastFailedLine ? (
+            <p
+              className="mt-1 text-xs text-[var(--color-fleet-failed-border)]"
+              title="Most recent failed run in the run list"
+            >
+              {lastFailedLine}
+            </p>
+          ) : null}
           {hasRunError && (
             <button
               type="button"

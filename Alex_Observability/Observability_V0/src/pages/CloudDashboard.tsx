@@ -19,8 +19,9 @@ import {
   cloudRobotCardSubtitle,
   cloudRobotCardTitle,
   cloudRobotFleetVisualStatus,
+  telemetryApiVersion,
+  telemetryLastFailedRunLine,
   telemetryLatestRunSummary,
-  telemetryStatus,
 } from '../utils/telemetryHealth';
 
 function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
@@ -41,7 +42,8 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
   });
   const visualStatus = cloudRobotFleetVisualStatus(robot);
   const runLine = telemetryLatestRunSummary(robot.runs);
-  const healthStatusLine = telemetryStatus(health);
+  const lastFailedLine = telemetryLastFailedRunLine(robot.runs);
+  const softwareVersion = telemetryApiVersion(health);
 
   return (
     <Link to={`/robot/cloud/${robot.id}`} className="robot-card-link group block">
@@ -79,8 +81,10 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
           >
             {FLEET_STATUS_LABELS[visualStatus]}
           </span>
-          {healthStatusLine ? (
-            <span className="text-xs text-muted-foreground">API: {healthStatusLine}</span>
+          {softwareVersion ? (
+            <span className="text-xs text-muted-foreground" title="Robot software version (health.api_version)">
+              Software: {softwareVersion}
+            </span>
           ) : null}
         </div>
         {runLine ? (
@@ -91,6 +95,14 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">No run list in last telemetry.</p>
         )}
+        {lastFailedLine ? (
+          <p
+            className="mt-1 text-xs text-[var(--color-fleet-failed-border)]"
+            title="Most recent failed run in stored telemetry"
+          >
+            {lastFailedLine}
+          </p>
+        ) : null}
         {(robot.notes?.trim() || (robot.run_note_count ?? 0) > 0) && (
           <p className="mt-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Notes</span>

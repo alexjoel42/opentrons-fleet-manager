@@ -7,15 +7,9 @@ A minimal **robot observability dashboard** for Opentrons fleets. It lets you ad
 ## High-Level Architecture
 
 ```
-┌─────────────────┐     /api/*      ┌──────────────────┐     HTTP :31950    ┌─────────────────┐
-│  React (Vite)   │ ──────────────► │  FastAPI backend │ ─────────────────► │ Opentrons robot │
-│  TypeScript     │   (proxy)       │  (Python)        │  (robot HTTP API)  │ (one or more)   │
-│  Port 5174      │                 │  Port 8000       │                    │                 │
-└─────────────────┘                 └──────────────────┘                    └─────────────────┘
-         │                                     │
-         │                                     │ robot_ips.json
-         │                                     │ (or ROBOT_IPS env)
-         └─────────────────────────────────────┘
+  React (Vite, TS)  --/api/* (proxy)-->  FastAPI (Python, :8000)  --HTTP :31950-->  Opentrons robot(s)
+
+  Backend reads/writes robot_ips.json (or ROBOT_IPS env) for the local IP list.
 ```
 
 - **Frontend**: React 19 + TypeScript + Vite + React Router. UI calls `/api/*`; in dev, Vite proxies those requests to the FastAPI backend so the browser never talks to robot IPs directly (avoids CORS and keeps robot addresses server-side).

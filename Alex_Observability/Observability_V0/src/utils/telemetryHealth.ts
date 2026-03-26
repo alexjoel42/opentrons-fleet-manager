@@ -2,7 +2,8 @@
  * Normalize health objects from relay-agent telemetry. Opentrons GET /health JSON
  * uses robot_serial, robot_model, etc.; older code paths used header-style serial_number.
  */
-import type { RunListItem, RunsResponse } from '../api/robotApi';
+import { getRunDisplayName, type RunListItem, type RunsResponse } from '../api/robotApi';
+import { formatNoteTimestamp } from './robotFormat';
 import { deriveRobotFleetVisualStatus, type RobotFleetVisualStatus } from './robotFleetStatus';
 
 export function telemetrySerial(health: Record<string, unknown> | null | undefined): string | null {
@@ -25,6 +26,14 @@ export function telemetryStatus(health: Record<string, unknown> | null | undefin
   if (!health) return null;
   const s = health.status;
   if (s != null && String(s).trim()) return String(s);
+  return null;
+}
+
+/** Robot server software version from GET /health (`api_version`). */
+export function telemetryApiVersion(health: Record<string, unknown> | null | undefined): string | null {
+  if (!health) return null;
+  const v = health.api_version;
+  if (v != null && String(v).trim()) return String(v).trim();
   return null;
 }
 
@@ -99,6 +108,46 @@ export function telemetryLatestRunSummary(runs: unknown): string | null {
   const id = item.id != null ? String(item.id) : '';
   if (id.length > 10) return `Run ${id.slice(0, 8)}… (${st})`;
   return id ? `Run ${id} (${st})` : `Latest run: ${st}`;
+}
+
+function isRunFailed(run: RunListItem): boolean {
+  const st = (run.status ?? '').toLowerCase();
+  if (st === 'failed') return true;
+  if (Array.isArray(run.errors) && run.errors.length > 0) return true;
+  return false;
+}
+
+function runRecencyMs(run: RunListItem): number {
+  for (const key of ['completedAt', 'startedAt', 'createdAt'] as const) {
+    const v = run[key];
+    if (v != null && String(v).trim()) {
+      const t = Date.parse(String(v));
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Most recent failed run in telemetry (status `failed` or non-empty `errors`),
+ * ordered by `completedAt` then `startedAt` then `createdAt`. For fleet cards.
+ */
+export function telemetryLastFailedRunLine(runs: unknown): string | null {
+  const r = coerceRunsForFleetStatus(runs);
+  if (!r?.data?.length) return null;
+  const failed = r.data.filter(isRunFailed);
+  if (failed.length === 0) return null;
+  failed.sort((a, b) => {
+    const dt = runRecencyMs(b) - runRecencyMs(a);
+    if (dt !== 0) return dt;
+    return String(b.id).localeCompare(String(a.id));
+  });
+  const last = failed[0];
+  const name = getRunDisplayName(last);
+  const tsRaw = last.completedAt ?? last.startedAt ?? last.createdAt;
+  const ts = formatNoteTimestamp(tsRaw ?? null);
+  if (ts) return `Last failed: ${name} · ${ts}`;
+  return `Last failed: ${name}`;
 }
 
 /** Same fleet status as local dashboard cards, from cloud telemetry health + runs. */
