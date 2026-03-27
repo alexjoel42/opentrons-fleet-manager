@@ -20,7 +20,7 @@ import {
   cloudRobotCardTitle,
   cloudRobotFleetVisualStatus,
   telemetryApiVersion,
-  telemetryLastFailedRunLine,
+  telemetryLastFailedRunInfo,
   telemetryLatestRunSummary,
 } from '../utils/telemetryHealth';
 
@@ -42,7 +42,8 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
   });
   const visualStatus = cloudRobotFleetVisualStatus(robot);
   const runLine = telemetryLatestRunSummary(robot.runs);
-  const lastFailedLine = telemetryLastFailedRunLine(robot.runs);
+  const lastFailedInfo = telemetryLastFailedRunInfo(robot.runs);
+  const lastFailedViewIp = robot.ip_last_seen?.trim() ?? '';
   const softwareVersion = telemetryApiVersion(health);
 
   return (
@@ -95,13 +96,39 @@ function RobotCloudCard({ robot }: { robot: CloudRobotSummary }) {
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">No run list in last telemetry.</p>
         )}
-        {lastFailedLine ? (
-          <p
-            className="mt-1 text-xs text-[var(--color-fleet-failed-border)]"
-            title="Most recent failed run in stored telemetry"
-          >
-            {lastFailedLine}
-          </p>
+        {lastFailedInfo ? (
+          <div className="mt-2 rounded-lg border border-border/90 bg-muted/25 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-fleet-failed-border)]">
+                  Last failed
+                </p>
+                <p className="mt-0.5 text-sm font-medium leading-snug text-foreground">
+                  {lastFailedInfo.displayName}
+                </p>
+                {lastFailedInfo.timestampLabel ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{lastFailedInfo.timestampLabel}</p>
+                ) : null}
+                {lastFailedInfo.errorMessage ? (
+                  <p
+                    className="mt-1.5 text-xs leading-snug text-[var(--color-fleet-failed-border)]"
+                    title={lastFailedInfo.errorDetailFull ?? lastFailedInfo.errorMessage}
+                  >
+                    {lastFailedInfo.errorMessage}
+                  </p>
+                ) : null}
+              </div>
+              {lastFailedViewIp ? (
+                <Link
+                  to={`/robot/${encodeURIComponent(lastFailedViewIp)}/runs/${encodeURIComponent(lastFailedInfo.runId)}`}
+                  className="shrink-0 rounded-lg border border-accent/35 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View
+                </Link>
+              ) : null}
+            </div>
+          </div>
         ) : null}
         {(robot.notes?.trim() || (robot.run_note_count ?? 0) > 0) && (
           <p className="mt-2 text-xs text-muted-foreground">

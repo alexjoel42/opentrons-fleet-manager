@@ -6,13 +6,13 @@ import { useRobotPipettes } from '../hooks/useRobotPipettes';
 import { useRobotRuns } from '../hooks/useRobotRuns';
 import { useNotifications } from '../lib/NotificationContext';
 import { formatPipettes, formatModules, orDash } from '../utils/robotFormat';
-import { telemetryApiVersion, telemetryLastFailedRunLine } from '../utils/telemetryHealth';
+import { telemetryApiVersion, telemetryLastFailedRunInfo } from '../utils/telemetryHealth';
 import {
   FLEET_STATUS_LABELS,
   deriveRobotFleetVisualStatus,
   rawRobotStatusDiffersFromLabel,
 } from '../utils/robotFleetStatus';
-import { fetchTroubleshootingZip, type RunsResponse } from '../api/robotApi';
+import { fetchTroubleshootingZip, getRunDisplayName, type RunsResponse } from '../api/robotApi';
 
 function triggerZipDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -140,12 +140,9 @@ export function RobotCardView({
   const robotName = orDash(healthData?.name);
   const titleText = robotName !== '—' ? `${robotName} · ${ip}` : ip;
   const softwareVersion = telemetryApiVersion(healthData ?? null);
-  const lastFailedLine = telemetryLastFailedRunLine(runsData ?? null);
+  const lastFailedInfo = telemetryLastFailedRunInfo(runsData ?? null);
   const pipetteLines = pipettesData != null ? formatPipettes(pipettesData) : [];
   const moduleLines = Array.isArray(modulesData) ? formatModules(modulesData) : [];
-  const runLabel = currentRun
-    ? `Current run: ${currentRun.protocolId ?? currentRun.id ?? '—'} (${currentRun.status ?? '—'})`
-    : 'No current run';
 
   const handleDownloadZip = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -221,14 +218,55 @@ export function RobotCardView({
           <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Run
           </span>
-          <span className="block text-sm text-foreground">{runLabel}</span>
-          {lastFailedLine ? (
-            <p
-              className="mt-1 text-xs text-[var(--color-fleet-failed-border)]"
-              title="Most recent failed run in the run list"
-            >
-              {lastFailedLine}
-            </p>
+          {currentRun ? (
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="min-w-0 flex-1 text-sm text-foreground">
+                <span className="text-muted-foreground">Current: </span>
+                {getRunDisplayName(currentRun)}
+                <span className="text-muted-foreground"> ({currentRun.status ?? '—'})</span>
+              </p>
+              <Link
+                to={`/robot/${encodeURIComponent(ip)}/runs/${encodeURIComponent(currentRun.id)}`}
+                className="shrink-0 rounded-lg border border-accent/35 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                View
+              </Link>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No current run</p>
+          )}
+          {lastFailedInfo ? (
+            <div className="mt-3 rounded-lg border border-border/90 bg-muted/25 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-fleet-failed-border)]">
+                    Last failed
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium leading-snug text-foreground">
+                    {lastFailedInfo.displayName}
+                  </p>
+                  {lastFailedInfo.timestampLabel ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{lastFailedInfo.timestampLabel}</p>
+                  ) : null}
+                  {lastFailedInfo.errorMessage ? (
+                    <p
+                      className="mt-1.5 text-xs leading-snug text-[var(--color-fleet-failed-border)]"
+                      title={lastFailedInfo.errorDetailFull ?? lastFailedInfo.errorMessage}
+                    >
+                      {lastFailedInfo.errorMessage}
+                    </p>
+                  ) : null}
+                </div>
+                <Link
+                  to={`/robot/${encodeURIComponent(ip)}/runs/${encodeURIComponent(lastFailedInfo.runId)}`}
+                  className="shrink-0 rounded-lg border border-accent/35 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View
+                </Link>
+              </div>
+            </div>
           ) : null}
           {hasRunError && (
             <button

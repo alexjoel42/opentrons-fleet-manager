@@ -95,7 +95,7 @@ export function cloudRobotCardSubtitle(
   return parts.length ? parts.join(' · ') : null;
 }
 
-/** One line for cloud fleet cards from stored runs JSON. */
+/** One line for cloud fleet cards from stored runs JSON (protocol file name when present). */
 export function telemetryLatestRunSummary(runs: unknown): string | null {
   const r = coerceRunsForFleetStatus(runs);
   if (!r?.data?.length) return null;
@@ -103,11 +103,8 @@ export function telemetryLatestRunSummary(runs: unknown): string | null {
   const item = cur ?? r.data[0];
   if (!item) return null;
   const st = item.status ?? '—';
-  const pid = item.protocolId != null ? String(item.protocolId) : null;
-  if (pid) return `Run: ${pid} (${st})`;
-  const id = item.id != null ? String(item.id) : '';
-  if (id.length > 10) return `Run ${id.slice(0, 8)}… (${st})`;
-  return id ? `Run ${id} (${st})` : `Latest run: ${st}`;
+  const name = getRunDisplayName(item);
+  return `Run: ${name} (${st})`;
 }
 
 function isRunFailed(run: RunListItem): boolean {
@@ -128,11 +125,34 @@ function runRecencyMs(run: RunListItem): number {
   return 0;
 }
 
-/**
- * Most recent failed run in telemetry (status `failed` or non-empty `errors`),
- * ordered by `completedAt` then `startedAt` then `createdAt`. For fleet cards.
- */
-export function telemetryLastFailedRunLine(runs: unknown): string | null {
+function firstRunErrorMessage(run: RunListItem): string | null {
+  if (!Array.isArray(run.errors) || run.errors.length === 0) return null;
+  const e = run.errors[0];
+  const raw = e.detail ?? e.errorType ?? e.errorCode;
+  if (raw == null || !String(raw).trim()) return null;
+  return String(raw).trim();
+}
+
+const _LAST_FAILED_ERR_MAX = 160;
+
+function truncateForCard(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+/** Most recent failed run in telemetry; use for fleet cards (View link + error text). */
+export type LastFailedRunTelemetry = {
+  displayName: string;
+  timestampLabel: string | null;
+  runId: string;
+  /** Primary error detail when present (truncated for inline display). */
+  errorMessage: string | null;
+  /** Full first error string for tooltips when `errorMessage` is truncated. */
+  errorDetailFull: string | null;
+};
+
+export function telemetryLastFailedRunInfo(runs: unknown): LastFailedRunTelemetry | null {
   const r = coerceRunsForFleetStatus(runs);
   if (!r?.data?.length) return null;
   const failed = r.data.filter(isRunFailed);
@@ -143,11 +163,32 @@ export function telemetryLastFailedRunLine(runs: unknown): string | null {
     return String(b.id).localeCompare(String(a.id));
   });
   const last = failed[0];
-  const name = getRunDisplayName(last);
   const tsRaw = last.completedAt ?? last.startedAt ?? last.createdAt;
   const ts = formatNoteTimestamp(tsRaw ?? null);
-  if (ts) return `Last failed: ${name} · ${ts}`;
-  return `Last failed: ${name}`;
+  const err = firstRunErrorMessage(last);
+  return {
+    displayName: getRunDisplayName(last),
+    timestampLabel: ts || null,
+    runId: last.id,
+    errorMessage: err ? truncateForCard(err, _LAST_FAILED_ERR_MAX) : null,
+    errorDetailFull: err,
+  };
+}
+
+/**
+ * Plain-text line for compact cards (includes truncated error when present).
+ * Prefer `telemetryLastFailedRunInfo` when building UI with a View link.
+ */
+export function telemetryLastFailedRunLine(runs: unknown): string | null {
+  const info = telemetryLastFailedRunInfo(runs);
+  if (!info) return null;
+  let line = info.timestampLabel
+    ? `Last failed: ${info.displayName} · ${info.timestampLabel}`
+    : `Last failed: ${info.displayName}`;
+  if (info.errorMessage) {
+    line += ` — ${info.errorMessage}`;
+  }
+  return line;
 }
 
 /** Same fleet status as local dashboard cards, from cloud telemetry health + runs. */
