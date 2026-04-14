@@ -107,6 +107,12 @@ You can host the **frontend** on [Vercel](https://vercel.com):
 
 ---
 
+## Raspberry Pi (ABR / LAN appliance)
+
+To run the stack on a Raspberry Pi with **systemd** (API on boot), **nginx** (serve `npm run build` on port **80**, proxy `/api` to Uvicorn on **127.0.0.1:8000**), and **`http://<hostname>.local`** access, see **[docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md)**.
+
+---
+
 ## Future Steps
 
 - **Security & auth**: Add authentication and restrict CORS to the real frontend origin; avoid storing sensitive data in `robot_ips.json` in production.
