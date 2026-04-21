@@ -23,6 +23,7 @@ import {
   firstRunErrorLine,
   formatRunDurationMs,
   runWallClockDurationMs,
+  sortRunsNewestFirst,
 } from '../utils/runMetadata';
 
 function triggerZipDownload(blob: Blob, filename: string) {
@@ -107,13 +108,16 @@ export function RobotDetail() {
   const softwareVersion = telemetryApiVersion(healthObj);
   const pipetteLines = pipettes.data != null ? formatPipettes(pipettes.data) : [];
   const moduleLines = Array.isArray(modules.data) ? formatModules(modules.data) : [];
+  const RUNS_LIST_LIMIT = 20;
+
   const runsAllDeduped: RunListItem[] = useMemo(() => {
     const raw = runs.data?.data;
     if (!Array.isArray(raw)) return [];
-    return (raw as RunListItem[]).filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+    const deduped = (raw as RunListItem[]).filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+    return sortRunsNewestFirst(deduped);
   }, [runs.data]);
 
-  const runsList = runsAllDeduped.slice(0, 10);
+  const runsList = runsAllDeduped.slice(0, RUNS_LIST_LIMIT);
 
   const successfulRunDurationStats = useMemo(
     () => averageSuccessfulRunWallClock(runsAllDeduped),

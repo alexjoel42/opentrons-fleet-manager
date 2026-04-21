@@ -17,6 +17,7 @@ import {
   firstRunErrorLine,
   formatRunDurationMs,
   runWallClockDurationMs,
+  sortRunsNewestFirst,
 } from '../utils/runMetadata';
 import {
   cloudRobotCardSubtitle,
@@ -94,7 +95,8 @@ export function CloudRobotDetail() {
   const runsCoerced = coerceRunsForFleetStatus(robot?.runs ?? null);
   const runsAllDeduped: RunListItem[] = useMemo(() => {
     if (!runsCoerced?.data?.length) return [];
-    return runsCoerced.data.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+    const deduped = runsCoerced.data.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+    return sortRunsNewestFirst(deduped);
   }, [runsCoerced]);
 
   const runsList = useMemo(() => runsAllDeduped.slice(0, 50), [runsAllDeduped]);

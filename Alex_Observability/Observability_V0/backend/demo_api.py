@@ -61,8 +61,6 @@ class CloudRunNotePut(BaseModel):
 DEFAULT_PORT = 31950
 # Default request timeout in seconds for robot HTTP calls.
 DEFAULT_TIMEOUT = 10.0
-
-
 class BaseRobot:
     """
     Client for querying Opentrons robots over the HTTP API.
@@ -149,6 +147,7 @@ class BaseRobot:
         path: str,
         scheme: str | None = None,
         port: int | None = None,
+        params: dict[str, Any] | None = None,
     ) -> httpx.Response:
         """Perform a GET request to the robot.
 
@@ -157,13 +156,14 @@ class BaseRobot:
             path: API path (e.g. "health", "runs").
             scheme: Optional 'http' or 'https'.
             port: Optional port override.
+            params: Optional query string parameters.
 
         Returns:
             httpx.Response from the robot. Caller should call raise_for_status() or
             handle httpx.HTTPStatusError, ConnectError, TimeoutException as needed.
         """
         url = self._url(ip_address, path, scheme=scheme, port=port)
-        return httpx.get(url, headers=self._headers, timeout=self.timeout)
+        return httpx.get(url, headers=self._headers, params=params, timeout=self.timeout)
 
     def get_health(
         self,
@@ -343,6 +343,8 @@ class BaseRobot:
         Returns:
             Parsed JSON response (typically has "data" list of runs).
         """
+        # Omit `pageLength`: per Opentrons HTTP API, omitted/null returns all runs. Passing
+        # pageLength has been observed to truncate lists on some robot builds (see fleet UI).
         response = self._get(ip_address, "runs", scheme=scheme, port=port)
         return response.json()
 

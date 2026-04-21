@@ -1,5 +1,25 @@
 import type { RunListItem } from '../api/robotApi';
 
+/**
+ * Best-effort instant for ordering runs on a timeline: `completedAt` → `startedAt` → `createdAt`.
+ * Newest runs should sort higher. Missing/invalid timestamps → 0.
+ */
+export function runRecencyTimestampMs(run: RunListItem): number {
+  for (const key of ['completedAt', 'startedAt', 'createdAt'] as const) {
+    const v = run[key];
+    if (v != null && String(v).trim()) {
+      const t = Date.parse(String(v));
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return 0;
+}
+
+/** Sort newest-first (API order is not guaranteed). */
+export function sortRunsNewestFirst(runs: RunListItem[]): RunListItem[] {
+  return [...runs].sort((a, b) => runRecencyTimestampMs(b) - runRecencyTimestampMs(a));
+}
+
 /** Wall‑clock duration from run JSON `startedAt` → `completedAt` (UTC), in milliseconds. */
 export function runWallClockDurationMs(run: RunListItem): number | null {
   const a = run.startedAt != null ? Date.parse(String(run.startedAt)) : NaN;
