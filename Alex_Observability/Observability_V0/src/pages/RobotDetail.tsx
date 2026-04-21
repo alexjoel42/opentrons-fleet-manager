@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRobot, useRobotLogs, useRobotRuns } from '../hooks';
@@ -18,6 +18,12 @@ import {
   getRunDisplayName,
 } from '../api/robotApi';
 import type { RunListItem } from '../api/robotApi';
+import {
+  averageSuccessfulRunWallClock,
+  firstRunErrorLine,
+  formatRunDurationMs,
+  runWallClockDurationMs,
+} from '../utils/runMetadata';
 
 function triggerZipDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -101,9 +107,18 @@ export function RobotDetail() {
   const softwareVersion = telemetryApiVersion(healthObj);
   const pipetteLines = pipettes.data != null ? formatPipettes(pipettes.data) : [];
   const moduleLines = Array.isArray(modules.data) ? formatModules(modules.data) : [];
-  const runsList = runs.data?.data && Array.isArray(runs.data.data)
-    ? (runs.data.data as RunListItem[]).filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i).slice(0, 10)
-    : [];
+  const runsAllDeduped: RunListItem[] = useMemo(() => {
+    const raw = runs.data?.data;
+    if (!Array.isArray(raw)) return [];
+    return (raw as RunListItem[]).filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+  }, [runs.data]);
+
+  const runsList = runsAllDeduped.slice(0, 10);
+
+  const successfulRunDurationStats = useMemo(
+    () => averageSuccessfulRunWallClock(runsAllDeduped),
+    [runsAllDeduped],
+  );
 
   const [runFileNames, setRunFileNames] = useState<Record<string, string>>({});
   const runIds = runsList.map((r) => r.id).join(',');
@@ -242,11 +257,28 @@ export function RobotDetail() {
               <p className="mt-1 text-sm font-medium text-foreground">{row.value}</p>
             </div>
           ))}
-          <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md sm:col-span-2">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Network address
-            </p>
-            <p className="mt-1 font-mono text-sm font-medium text-foreground">{ip}</p>
+          <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+            <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Network address
+              </p>
+              <p className="mt-1 font-mono text-sm font-medium text-foreground">{ip}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Average successful run
+              </p>
+              <p className="mt-1 text-sm font-medium text-foreground">
+                {runs.isLoading && !runs.data
+                  ? '…'
+                  : successfulRunDurationStats
+                    ? `${formatRunDurationMs(successfulRunDurationStats.averageMs)} (${successfulRunDurationStats.count} run${successfulRunDurationStats.count === 1 ? '' : 's'})`
+                    : '—'}
+              </p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground" title="Wall‑clock from startedAt to completedAt. Only status succeeded, no errors. Failed runs excluded.">
+                Succeeded runs only; failed excluded.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -304,6 +336,10 @@ export function RobotDetail() {
             <ul className="space-y-5 p-5 sm:space-y-6">
               {runsList.map((run) => {
                 const hasError = run.errors && run.errors.length > 0;
+                const errLine = firstRunErrorLine(run);
+                const durationMs = runWallClockDurationMs(run);
+                const durationLabel =
+                  durationMs != null ? formatRunDurationMs(durationMs) : '— (missing start/end in API)';
                 const pending = zipPendingFor === run.id;
                 const displayName = getRunDisplayLabel(run);
                 const runVisual = deriveRunListItemFleetStatus(run);
@@ -348,6 +384,19 @@ export function RobotDetail() {
                           <h3 className="mt-2 font-sans text-base font-semibold leading-snug text-foreground">
                             {displayName}
                           </h3>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            <span className="text-muted-foreground">Wall‑clock duration:</span>{' '}
+                            <span className="font-medium text-foreground">{durationLabel}</span>
+                          </p>
+                          {hasError && errLine ? (
+                            <p
+                              className="mt-2 rounded-lg border border-error/40 bg-error-muted/30 px-3 py-2 text-xs text-error"
+                              role="alert"
+                            >
+                              <span className="font-semibold">Error: </span>
+                              {errLine}
+                            </p>
+                          ) : null}
                           <p className="mt-1 font-mono text-[11px] text-muted-foreground break-all" title={run.id}>
                             {run.id}
                           </p>

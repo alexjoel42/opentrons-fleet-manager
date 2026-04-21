@@ -238,25 +238,9 @@ http://abrfriend.local
 
 If `.local` fails on some clients, use the Pi’s IP address: **`http://192.168.x.x`**.
 
----
-
-## 7. Firewall (optional)
-
-If **ufw** is enabled, allow HTTP (and SSH if you need it):
-
-```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw enable
-```
-
-Do **not** open port **8000** to the WAN/LAN if the API is only for nginx on localhost.
-
----
-
 ## 8. Quick checks
 
-- API directly (on the Pi): `curl -sS http://127.0.0.1:8000/health` (or `/api/health` depending on routes exposed).
+- API directly (on the Pi): `curl -sS http://127.0.0.1:8000/hehttp://abrfriend.local/dashboardalth` (or `/api/health` depending on routes exposed).
 - Through nginx: `curl -sS http://127.0.0.1/api/health` from the Pi.
 - From a laptop: open **`http://abrfriend.local`** (or the Pi’s IP).
 

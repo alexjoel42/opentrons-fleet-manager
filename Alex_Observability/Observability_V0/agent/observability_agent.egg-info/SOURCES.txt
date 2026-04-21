@@ -1,8 +1,0 @@
-pyproject.toml
-run_agent.py
-observability_agent.egg-info/PKG-INFO
-observability_agent.egg-info/SOURCES.txt
-observability_agent.egg-info/dependency_links.txt
-observability_agent.egg-info/entry_points.txt
-observability_agent.egg-info/requires.txt
-observability_agent.egg-info/top_level.txt

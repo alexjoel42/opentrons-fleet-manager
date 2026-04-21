@@ -1,6 +1,0 @@
-{
-  "lab_id": "YOUR_LAB_ID",
-  "agent_token": "YOUR_AGENT_TOKEN",
-  "backend_url": "https://your-observability-api.com",
-  "robot_poll_interval_seconds": 60
-}

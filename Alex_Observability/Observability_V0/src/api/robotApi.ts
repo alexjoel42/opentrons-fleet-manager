@@ -219,6 +219,8 @@ export interface RunListItem {
   modules?: Array<{ id?: string; model?: string; serialNumber?: string }>;
   completedAt?: string;
   startedAt?: string;
+  /** When true, run entered error recovery (exclude from “successful” averages). */
+  hasEverEnteredErrorRecovery?: boolean;
 }
 
 /** Prefer protocol file name (main) over protocolId/id for display. */

@@ -13,6 +13,12 @@ import { getRunDisplayName, type RunListItem } from '../api/robotApi';
 import { UI_POLL_INTERVAL_MS } from '../lib/queryPollMs';
 import { formatNoteTimestamp, orDash } from '../utils/robotFormat';
 import {
+  averageSuccessfulRunWallClock,
+  firstRunErrorLine,
+  formatRunDurationMs,
+  runWallClockDurationMs,
+} from '../utils/runMetadata';
+import {
   cloudRobotCardSubtitle,
   cloudRobotCardTitle,
   coerceRunsForFleetStatus,
@@ -86,15 +92,20 @@ export function CloudRobotDetail() {
   });
 
   const runsCoerced = coerceRunsForFleetStatus(robot?.runs ?? null);
-  const runsList: RunListItem[] = useMemo(() => {
+  const runsAllDeduped: RunListItem[] = useMemo(() => {
     if (!runsCoerced?.data?.length) return [];
-    return runsCoerced.data
-      .filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i)
-      .slice(0, 50);
+    return runsCoerced.data.filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
   }, [runsCoerced]);
 
+  const runsList = useMemo(() => runsAllDeduped.slice(0, 50), [runsAllDeduped]);
+
+  const successfulRunDurationStats = useMemo(
+    () => averageSuccessfulRunWallClock(runsAllDeduped),
+    [runsAllDeduped],
+  );
+
   const runNotesMap = robot?.run_notes ?? {};
-  const telemetryIds = useMemo(() => new Set(runsList.map((r) => r.id)), [runsList]);
+  const telemetryIds = useMemo(() => new Set(runsAllDeduped.map((r) => r.id)), [runsAllDeduped]);
   const orphanRunIds = useMemo(
     () => Object.keys(runNotesMap).filter((rid) => !telemetryIds.has(rid)),
     [runNotesMap, telemetryIds],
@@ -218,6 +229,52 @@ export function CloudRobotDetail() {
         </div>
       </div>
 
+      <section className="mb-10">
+        <h2 className="mb-4 font-display text-xl font-normal tracking-tight text-foreground">Summary</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            {
+              label: 'Name',
+              value: orDash(telemetryRobotName(health) || robot.name || null),
+            },
+            { label: 'Serial', value: orDash(robot.robot_serial ?? telemetrySerial(health)) },
+            { label: 'Health status', value: orDash(telemetryStatus(health)) },
+            ...(softwareVersion ? [{ label: 'Software', value: softwareVersion }] : []),
+          ].map((row) => (
+            <div
+              key={row.label}
+              className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md"
+            >
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                {row.label}
+              </p>
+              <p className="mt-1 text-sm font-medium text-foreground">{row.value}</p>
+            </div>
+          ))}
+          <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+            <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Network address
+              </p>
+              <p className="mt-1 font-mono text-sm font-medium text-foreground">{orDash(robot.ip_last_seen)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-shadow hover:shadow-md">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Average successful run time
+              </p>
+              <p className="mt-1 text-sm font-medium text-foreground">
+                {successfulRunDurationStats
+                  ? `${formatRunDurationMs(successfulRunDurationStats.averageMs)} (${successfulRunDurationStats.count} run${successfulRunDurationStats.count === 1 ? '' : 's'})`
+                  : '—'}
+              </p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground" title="Wall‑clock from startedAt to completedAt. Only status succeeded, no errors. Failed runs excluded.">
+                Succeeded runs only; failed excluded.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="mb-8 rounded-xl border border-border bg-card p-5 shadow-md">
         <h2 className="font-display text-lg font-normal text-foreground">Robot notes</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -308,6 +365,11 @@ export function CloudRobotDetail() {
           {runsList.length > 0 && (
             <ul className="mt-4 space-y-6">
               {runsList.map((run) => {
+                const hasErr = run.errors && run.errors.length > 0;
+                const errLine = firstRunErrorLine(run);
+                const durationMs = runWallClockDurationMs(run);
+                const durationLabel =
+                  durationMs != null ? formatRunDurationMs(durationMs) : '— (missing start/end in telemetry)';
                 const savingDetail =
                   saveRunNoteMutation.isPending &&
                   saveRunNoteMutation.variables?.runId === run.id &&
@@ -326,10 +388,21 @@ export function CloudRobotDetail() {
                           ) : null}
                           <span className="font-medium text-foreground">{getRunDisplayName(run)}</span>
                           <span className="text-muted-foreground">— {orDash(run.status)}</span>
-                          {run.errors && run.errors.length > 0 ? (
-                            <span className="text-error">(error)</span>
-                          ) : null}
+                          {hasErr ? <span className="text-error">(error)</span> : null}
                         </div>
+                        <p className="mt-1 text-muted-foreground">
+                          Wall‑clock duration:{' '}
+                          <span className="font-medium text-foreground">{durationLabel}</span>
+                        </p>
+                        {hasErr && errLine ? (
+                          <p
+                            className="mt-2 rounded-lg border border-error/40 bg-error-muted/30 px-3 py-2 text-xs text-error"
+                            role="alert"
+                          >
+                            <span className="font-semibold">Error: </span>
+                            {errLine}
+                          </p>
+                        ) : null}
                         <p className="mt-1 font-mono text-xs text-muted-foreground">Run id: {run.id}</p>
                       </div>
                       <div className="min-w-[10rem] max-w-xs shrink-0">
