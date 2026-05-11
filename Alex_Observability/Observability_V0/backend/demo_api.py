@@ -788,7 +788,11 @@ def robot_http_error(message: str, code: str, status_code: int = 503) -> HTTPExc
 ROBOT_IPS_FILE = Path(__file__).resolve().parent / "robot_ips.json"
 # Local fleet: free-form notes per robot IP (key "notes": { "10.0.0.1": "..." }).
 ROBOT_NOTES_FILE = Path(__file__).resolve().parent / "robot_notes.json"
-# Lock for thread-safe read/write of robot_ips.json and robot_notes.json.
+# Named dashboard membership (subset of configured IPs per slug); shared across clients.
+ROBOT_DASHBOARDS_FILE = Path(__file__).resolve().parent / "robot_dashboards.json"
+# Cooperative checkout: who is using each robot (honor-system operator name).
+ROBOT_CHECKOUTS_FILE = Path(__file__).resolve().parent / "robot_checkouts.json"
+# Lock for thread-safe read/write of fleet JSON stores.
 _store_lock = threading.RLock()
 
 
@@ -891,25 +895,224 @@ def _save_robot_notes(notes: dict[str, str]) -> None:
     _write_notes_store_unlocked(store)
 
 
+def _is_valid_dashboard_slug(s: str) -> bool:
+    if not s or len(s) > 64:
+        return False
+    for c in s:
+        if c.isalnum() or c in "-_":
+            continue
+        return False
+    return True
+
+
+def _load_robot_dashboards_unlocked() -> dict[str, Any]:
+    """Return dashboards map and tab order. Caller must hold _store_lock."""
+    if not ROBOT_DASHBOARDS_FILE.exists():
+        return {"dashboards": {}, "order": []}
+    try:
+        data = json.loads(ROBOT_DASHBOARDS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"dashboards": {}, "order": []}
+    dashboards_raw = data.get("dashboards") if isinstance(data, dict) else None
+    dashboards: dict[str, list[str]] = {}
+    if isinstance(dashboards_raw, dict):
+        for k, v in dashboards_raw.items():
+            if not isinstance(k, str) or not _is_valid_dashboard_slug(k.strip()):
+                continue
+            key = k.strip()
+            if not isinstance(v, list):
+                continue
+            ips_out: list[str] = []
+            for x in v:
+                if isinstance(x, str) and _is_valid_robot_address(x.strip()):
+                    ips_out.append(x.strip())
+            dashboards[key] = ips_out
+    order_raw = data.get("order") if isinstance(data, dict) else None
+    order_list: list[str] = []
+    if isinstance(order_raw, list):
+        for x in order_raw:
+            if isinstance(x, str) and _is_valid_dashboard_slug(x.strip()):
+                order_list.append(x.strip())
+    seen_order: list[str] = []
+    for slug in order_list:
+        if slug in dashboards and slug not in seen_order:
+            seen_order.append(slug)
+    for slug in dashboards:
+        if slug not in seen_order:
+            seen_order.append(slug)
+    return {"dashboards": dashboards, "order": seen_order}
+
+
+def _save_robot_dashboards_unlocked(dashboards: dict[str, list[str]], order: list[str]) -> None:
+    """Persist dashboard membership. Caller must hold _store_lock."""
+    ROBOT_DASHBOARDS_FILE.write_text(json.dumps({"dashboards": dashboards, "order": order}, indent=2))
+
+
+def _load_robot_dashboards() -> dict[str, Any]:
+    with _store_lock:
+        return dict(_load_robot_dashboards_unlocked())
+
+
+def _load_robot_checkouts_unlocked() -> dict[str, dict[str, str]]:
+    """checkout[ip] = {operator, since}. Caller must hold _store_lock."""
+    if not ROBOT_CHECKOUTS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(ROBOT_CHECKOUTS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    raw = data.get("checkouts") if isinstance(data, dict) else None
+    out: dict[str, dict[str, str]] = {}
+    if not isinstance(raw, dict):
+        return out
+    for ip, entry in raw.items():
+        if not isinstance(ip, str) or not _is_valid_robot_address(ip.strip()):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        op = entry.get("operator")
+        since = entry.get("since")
+        if not isinstance(op, str) or not op.strip():
+            continue
+        if not isinstance(since, str):
+            since = _utc_iso()
+        out[ip.strip()] = {"operator": op.strip()[:200], "since": since}
+    return out
+
+
+def _save_robot_checkouts_unlocked(checkouts: dict[str, dict[str, str]]) -> None:
+    """Persist checkouts. Caller must hold _store_lock."""
+    ROBOT_CHECKOUTS_FILE.write_text(json.dumps({"checkouts": checkouts}, indent=2))
+
+
+def _load_robot_checkouts() -> dict[str, dict[str, str]]:
+    with _store_lock:
+        return dict(_load_robot_checkouts_unlocked())
+
+
+def _strip_ip_from_dashboards_unlocked(ip_key: str) -> None:
+    """Remove ip from every dashboard list when robot removed from fleet."""
+    store = _load_robot_dashboards_unlocked()
+    dashboards: dict[str, list[str]] = dict(store.get("dashboards") or {})
+    order: list[str] = list(store.get("order") or [])
+    changed = False
+    for slug, ips in list(dashboards.items()):
+        filt = [x for x in ips if x != ip_key]
+        if len(filt) != len(ips):
+            changed = True
+        dashboards[slug] = filt
+    if changed:
+        _save_robot_dashboards_unlocked(dashboards, order)
+
+
+@app.get("/api/dashboards")
+def get_dashboards() -> dict[str, Any]:
+    """Return named dashboard membership and tab order (shared JSON store)."""
+    return _load_robot_dashboards()
+
+
+@app.put("/api/dashboards")
+def put_dashboards(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Replace dashboard membership. Each IP may appear in at most one dashboard; IPs must exist in fleet."""
+    raw_d = body.get("dashboards")
+    raw_order = body.get("order")
+    if not isinstance(raw_d, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": '"dashboards" must be an object mapping slug to IP arrays', "code": "INVALID_BODY"},
+        )
+    normalized: dict[str, list[str]] = {}
+    for k, v in raw_d.items():
+        if not isinstance(k, str) or not _is_valid_dashboard_slug(k.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": f"Invalid dashboard slug: {k!r}", "code": "INVALID_SLUG"},
+            )
+        slug = k.strip()
+        if not isinstance(v, list):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": f"Dashboard {slug!r} must map to an IP array", "code": "INVALID_BODY"},
+            )
+        ips_list: list[str] = []
+        for x in v:
+            if not isinstance(x, str):
+                continue
+            s = x.strip()
+            if s and _is_valid_robot_address(s):
+                ips_list.append(s)
+        normalized[slug] = ips_list
+
+    order_out: list[str] = []
+    if raw_order is not None:
+        if not isinstance(raw_order, list):
+            raise HTTPException(
+                status_code=400,
+                detail={"error": '"order" must be an array of dashboard slugs', "code": "INVALID_BODY"},
+            )
+        for x in raw_order:
+            if isinstance(x, str) and _is_valid_dashboard_slug(x.strip()):
+                slug = x.strip()
+                if slug in normalized and slug not in order_out:
+                    order_out.append(slug)
+    for slug in normalized:
+        if slug not in order_out:
+            order_out.append(slug)
+
+    with _store_lock:
+        allowed = set(_load_robot_ips())
+        seen_ips: set[str] = set()
+        for slug, ips_list in normalized.items():
+            for ip in ips_list:
+                if ip not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={"error": f"IP {ip!r} is not in the fleet list", "code": "UNKNOWN_IP"},
+                    )
+                if ip in seen_ips:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={"error": f"IP {ip!r} appears in more than one dashboard", "code": "DUPLICATE_IP"},
+                    )
+                seen_ips.add(ip)
+        _save_robot_dashboards_unlocked(normalized, order_out)
+
+    return _load_robot_dashboards()
+
+
 @app.get("/api/robots")
 def list_robots() -> dict[str, Any]:
-    """Return configured robot IPs and optional per-IP notes (local fleet JSON store)."""
+    """Return configured robot IPs, per-IP notes, and cooperative checkouts."""
     ips = _load_robot_ips()
     notes = _load_robot_notes()
-    return {"ips": ips, "notes": notes}
+    checkouts = _load_robot_checkouts()
+    return {"ips": ips, "notes": notes, "checkouts": checkouts}
 
 
 @app.get("/api/fleet/snapshot")
-async def fleet_snapshot() -> dict[str, Any]:
-    """Batch health, modules, pipettes, and runs for all configured robots in one request.
+async def fleet_snapshot(dashboard: str | None = Query(None)) -> dict[str, Any]:
+    """Batch health, modules, pipettes, and runs for configured robots.
 
-    Uses bounded concurrency to avoid unbounded parallel connections. Per-robot entries
-    may include null fields when a sub-request fails; ``errors`` maps IP to a message when
-    health could not be retrieved (typically unreachable).
+    Optional ``dashboard``: omit, empty, or ``all`` for entire fleet; otherwise only IPs
+    assigned to that dashboard slug are included (unknown slug → empty snapshot).
+
+    Uses bounded concurrency. Includes ``checkouts`` for robots in this snapshot.
     """
-    ips = _load_robot_ips()
+    all_ips = _load_robot_ips()
+    d_slug = (dashboard or "").strip()
+    if not d_slug or d_slug.lower() == "all":
+        ips = all_ips
+    else:
+        dash_store = _load_robot_dashboards()
+        dmap: dict[str, Any] = dash_store.get("dashboards") or {}
+        ips = list(dmap.get(d_slug, []))
+
+    checkouts_all = _load_robot_checkouts()
+    checkouts = {ip: checkouts_all[ip] for ip in ips if ip in checkouts_all}
+
     if not ips:
-        return {"robots": {}, "errors": {}}
+        return {"robots": {}, "errors": {}, "checkouts": checkouts}
+
     headers = robot_client._headers
     timeout = robot_client.timeout
     sem = asyncio.Semaphore(FLEET_SNAPSHOT_ROBOT_CONCURRENCY)
@@ -922,7 +1125,51 @@ async def fleet_snapshot() -> dict[str, Any]:
         robots[ip] = payload
         if err:
             errors[ip] = err
-    return {"robots": robots, "errors": errors}
+    return {"robots": robots, "errors": errors, "checkouts": checkouts}
+
+
+@app.post("/api/robots/{ip}/checkout")
+def checkout_robot(ip: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Claim a robot for an operator. Idempotent if the same operator already holds the checkout."""
+    validate_ip(ip)
+    key = ip.strip()
+    operator = (body.get("operator") or "").strip()
+    if not operator:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": 'Body must include non-empty "operator"', "code": "INVALID_BODY"},
+        )
+    operator_norm = operator[:200]
+    with _store_lock:
+        checkouts = _load_robot_checkouts_unlocked()
+        existing = checkouts.get(key)
+        if existing:
+            if existing.get("operator") == operator_norm:
+                return {"ip": key, "checkout": existing}
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": f"Robot is in use by {existing.get('operator')}",
+                    "code": "CHECKOUT_CONFLICT",
+                },
+            )
+        entry = {"operator": operator_norm, "since": _utc_iso()}
+        checkouts[key] = entry
+        _save_robot_checkouts_unlocked(checkouts)
+    return {"ip": key, "checkout": entry}
+
+
+@app.delete("/api/robots/{ip}/checkout")
+def release_robot_checkout(ip: str) -> dict[str, Any]:
+    """Release cooperative checkout (lab trust: any visitor may release)."""
+    validate_ip(ip)
+    key = ip.strip()
+    with _store_lock:
+        checkouts = _load_robot_checkouts_unlocked()
+        removed = checkouts.pop(key, None)
+        if removed is not None:
+            _save_robot_checkouts_unlocked(checkouts)
+    return {"ip": key, "released": removed is not None}
 
 
 @app.post("/api/robots")
@@ -981,6 +1228,10 @@ def remove_robot(ip: str) -> dict[str, list[str]]:
         store["notes"].pop(key, None)
         store["run_notes"].pop(key, None)
         _write_notes_store_unlocked(store)
+        _strip_ip_from_dashboards_unlocked(key)
+        co = _load_robot_checkouts_unlocked()
+        if co.pop(key, None) is not None:
+            _save_robot_checkouts_unlocked(co)
     return {"ips": ips}
 
 

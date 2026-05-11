@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRobotHealth } from '../hooks/useRobotHealth';
 import { useRobotModules } from '../hooks/useRobotModules';
 import { useRobotPipettes } from '../hooks/useRobotPipettes';
@@ -12,7 +13,15 @@ import {
   deriveRobotFleetVisualStatus,
   rawRobotStatusDiffersFromLabel,
 } from '../utils/robotFleetStatus';
-import { fetchTroubleshootingZip, getRunDisplayName, type RunsResponse } from '../api/robotApi';
+import {
+  checkoutRobot,
+  defaultNotesOperatorName,
+  fetchTroubleshootingZip,
+  getRunDisplayName,
+  releaseRobotCheckout,
+  type RobotCheckoutInfo,
+  type RunsResponse,
+} from '../api/robotApi';
 
 function triggerZipDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -88,6 +97,10 @@ export interface RobotCardViewProps {
   robotNotes?: string | null;
   onSaveRobotNotes?: (text: string) => void;
   isSavingRobotNotes?: boolean;
+  /** Shared cooperative checkout (fleet server). */
+  checkout?: RobotCheckoutInfo | null;
+  /** Show sign-in / sign-out controls (Dashboard fleet cards). */
+  enableCheckout?: boolean;
 }
 
 /** Presentational fleet card; used by Dashboard with snapshot data or by RobotCard with live hooks. */
@@ -105,9 +118,13 @@ export function RobotCardView({
   robotNotes,
   onSaveRobotNotes,
   isSavingRobotNotes,
+  checkout,
+  enableCheckout = false,
 }: RobotCardViewProps) {
+  const queryClient = useQueryClient();
   const { addNotification } = useNotifications();
   const [zipPending, setZipPending] = useState(false);
+  const [operatorName, setOperatorName] = useState(defaultNotesOperatorName);
   const lastNotifiedRunId = useRef<string | null>(null);
   const lastNotifiedPaused = useRef(false);
   const lastNotifiedError = useRef(false);
@@ -198,6 +215,26 @@ export function RobotCardView({
       .finally(() => setZipPending(false));
   };
 
+  const checkoutMutation = useMutation({
+    mutationFn: () => {
+      const t = operatorName.trim();
+      if (!t) throw new Error('Enter your name to sign in');
+      return checkoutRobot(ip, t);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['fleet', 'snapshot'] });
+      queryClient.invalidateQueries({ queryKey: ['robots', 'list'] });
+    },
+  });
+
+  const releaseMutation = useMutation({
+    mutationFn: () => releaseRobotCheckout(ip),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['fleet', 'snapshot'] });
+      queryClient.invalidateQueries({ queryKey: ['robots', 'list'] });
+    },
+  });
+
   const isError = visualStatus === 'unreachable' || visualStatus === 'failed' || visualStatus === 'error';
 
   return (
@@ -258,6 +295,70 @@ export function RobotCardView({
             </span>
           ) : null}
         </div>
+        {enableCheckout && (
+          <div
+            className="mb-4 rounded-lg border border-border bg-muted/25 p-3"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Session
+            </span>
+            {checkout ? (
+              <div className="space-y-2">
+                <p className="text-sm text-foreground">
+                  <span className="font-medium">Signed in:</span> {checkout.operator}
+                </p>
+                <p className="text-xs text-muted-foreground">Since {checkout.since}</p>
+                <button
+                  type="button"
+                  disabled={releaseMutation.isPending}
+                  onClick={() => releaseMutation.mutate()}
+                  className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+                >
+                  {releaseMutation.isPending ? 'Signing out…' : 'Sign out'}
+                </button>
+                {releaseMutation.isError && (
+                  <p className="text-xs text-error" role="alert">
+                    {releaseMutation.error instanceof Error ? releaseMutation.error.message : 'Release failed'}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label htmlFor={`operator-${ip}`} className="sr-only">
+                  Your name
+                </label>
+                <input
+                  id={`operator-${ip}`}
+                  type="text"
+                  value={operatorName}
+                  onChange={(e) => setOperatorName(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <button
+                  type="button"
+                  disabled={checkoutMutation.isPending}
+                  onClick={() => checkoutMutation.mutate()}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-95 disabled:opacity-60"
+                >
+                  {checkoutMutation.isPending ? 'Signing in…' : 'Sign in'}
+                </button>
+                {checkoutMutation.isError && (
+                  <p className="text-xs text-error" role="alert">
+                    {checkoutMutation.error instanceof Error
+                      ? checkoutMutation.error.message
+                      : 'Sign-in failed'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="mb-4">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Run

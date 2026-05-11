@@ -3,10 +3,10 @@ import { fetchFleetSnapshot } from '../api/robotApi';
 import { UI_POLL_INTERVAL_MS } from '../lib/queryPollMs';
 
 /** Single batched poll for all robots (health, modules, pipettes, runs). Use on Dashboard instead of per-card queries. */
-export function useFleetSnapshot(enabled: boolean) {
+export function useFleetSnapshot(enabled: boolean, dashboardSlug: string | null = null) {
   return useQuery({
-    queryKey: ['fleet', 'snapshot'],
-    queryFn: fetchFleetSnapshot,
+    queryKey: ['fleet', 'snapshot', dashboardSlug ?? 'all'],
+    queryFn: () => fetchFleetSnapshot(dashboardSlug),
     enabled,
     staleTime: UI_POLL_INTERVAL_MS,
     retry: 3,

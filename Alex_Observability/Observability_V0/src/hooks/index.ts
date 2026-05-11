@@ -6,3 +6,4 @@ export { useRobotLogs } from './useRobotLogs';
 export { useRobotList } from './useRobotList';
 export { useRobotRuns } from './useRobotRuns';
 export { useFleetSnapshot } from './useFleetSnapshot';
+export { useDashboards } from './useDashboards';

@@ -18,15 +18,71 @@ function localNotesHeaders(): HeadersInit {
   return { 'Content-Type': 'application/json', 'X-Notes-Operator': name };
 }
 
+/** Default operator label for notes and robot checkout (same env as headers). */
+export function defaultNotesOperatorName(): string {
+  return (import.meta.env.VITE_NOTES_OPERATOR_NAME as string | undefined)?.trim() ?? '';
+}
+
 export interface RobotErrorBody {
   error: string;
   code: string;
+}
+
+/** Cooperative checkout stored on the fleet server (shared across clients). */
+export interface RobotCheckoutInfo {
+  operator: string;
+  since: string;
 }
 
 export interface RobotListResponse {
   ips: string[];
   /** Local fleet only: dashboard notes keyed by robot IP. */
   notes?: Record<string, string>;
+  /** Checkout status keyed by robot IP. */
+  checkouts?: Record<string, RobotCheckoutInfo>;
+}
+
+export interface DashboardsResponse {
+  dashboards: Record<string, string[]>;
+  order: string[];
+}
+
+export async function fetchDashboards(): Promise<DashboardsResponse> {
+  const res = await fetch(`${BASE}/api/dashboards`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as DashboardsResponse;
+}
+
+export async function saveDashboards(body: DashboardsResponse): Promise<DashboardsResponse> {
+  const res = await fetch(`${BASE}/api/dashboards`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as DashboardsResponse;
+}
+
+export async function checkoutRobot(ip: string, operator: string): Promise<{ ip: string; checkout: RobotCheckoutInfo }> {
+  const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operator: operator.trim() }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as { ip: string; checkout: RobotCheckoutInfo };
+}
+
+export async function releaseRobotCheckout(ip: string): Promise<{ ip: string; released: boolean }> {
+  const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/checkout`, {
+    method: 'DELETE',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as { ip: string; released: boolean };
 }
 
 export async function fetchRobotList(): Promise<RobotListResponse> {
@@ -185,10 +241,16 @@ export interface FleetRobotSnapshotRow {
 export interface FleetSnapshotResponse {
   robots: Record<string, FleetRobotSnapshotRow>;
   errors: Record<string, string>;
+  /** Checkout rows for robots included in this snapshot (subset when filtered by dashboard). */
+  checkouts?: Record<string, RobotCheckoutInfo>;
 }
 
-export async function fetchFleetSnapshot(): Promise<FleetSnapshotResponse> {
-  const res = await fetch(`${BASE}/api/fleet/snapshot`);
+export async function fetchFleetSnapshot(dashboard?: string | null): Promise<FleetSnapshotResponse> {
+  const q =
+    dashboard != null && dashboard !== '' && dashboard.toLowerCase() !== 'all'
+      ? `?dashboard=${encodeURIComponent(dashboard)}`
+      : '';
+  const res = await fetch(`${BASE}/api/fleet/snapshot${q}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
   return data as FleetSnapshotResponse;

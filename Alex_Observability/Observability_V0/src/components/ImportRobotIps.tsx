@@ -19,6 +19,7 @@ export function ImportRobotIps({ variant = 'dashboard' }: Props) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['robots', 'list'] });
       queryClient.invalidateQueries({ queryKey: ['fleet', 'snapshot'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboards'] });
       setLocalError(null);
     },
   });

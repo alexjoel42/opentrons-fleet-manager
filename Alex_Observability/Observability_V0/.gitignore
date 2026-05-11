@@ -11,6 +11,8 @@ node_modules
 .venv
 backend/robot_ips.json
 backend/robot_notes.json
+backend/robot_dashboards.json
+backend/robot_checkouts.json
 dist
 dist-ssr
 agent/dist

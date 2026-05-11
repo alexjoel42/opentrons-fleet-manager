@@ -50,10 +50,10 @@ export function RunDetail() {
     protocolNamePayload?.protocolFileName?.trim() ||
     mainProtocolFileNameFromRunData(runObj) ||
     null;
-  const runHeadline = protocolFileName ?? runId;
+  const runHeadline = protocolFileName ?? runId ?? '';
 
   const runForMeta: RunListItem | null =
-    runObj != null
+    runObj != null && runId
       ? ({
           id: runId,
           startedAt: typeof runObj.startedAt === 'string' ? runObj.startedAt : undefined,
