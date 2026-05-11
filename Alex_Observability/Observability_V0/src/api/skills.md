@@ -1,16 +1,11 @@
 # API layer — Backend client
 
-**Purpose:** Single place that calls the FastAPI backend. All URLs are `BASE + /api/...`; browser never hits robot IPs.
+**Purpose:** Call the FastAPI backend only; the browser never hits robot IPs.
 
-**robotApi.ts** (local / IP-based mode):
-- **BASE:** `import.meta.env.VITE_API_URL ?? ''` (empty = same origin; use with Vite proxy or set to backend URL).
-- **Exports:** `fetchRobotList()`, `addRobotIp`, `importRobotIpsBulk`, `removeRobotIp`, `fetchRobotHealth(ip)`, `fetchRobotModules(ip)`, `fetchRobotPipettes(ip)`, `fetchRobotLogs(ip)`, `fetchRobotSerialNumber(ip)`, `fetchRobotRuns(ip)`, `fetchTroubleshootingZip(ip, runId?)`.
-- **Errors:** On non-OK response, parse JSON and read `detail.error` (FastAPI) or `error`; throw `new Error(message)` so React Query sees a single error type.
+**robotApi.ts**
 
-**cloudApi.ts** (when `VITE_USE_CLOUD=true`):
-- **Auth:** `login(email, password)`, `signup(email, password)` → `{ access_token }`.
-- **Labs / robots:** `fetchLabs(token)`, `fetchCloudRobots(token, labId?)`, `fetchCloudRobot(token, robotId)`; all require `Authorization: Bearer <token>`.
-- **Relay agent poll targets (cloud source of truth for IPs):** Types **`RobotPollTarget`** `{ ip, scheme, port }`. **`fetchRobotPollTargets(token, labId)`** → `GET /api/labs/{lab_id}/robot-poll-targets`. **`saveRobotPollTargets(token, labId, robots)`** → `PUT` same path with `{ robots }`. Used by **`CloudRobotPollTargets`** so operators do not put IPs on the agent machine in production.
-- **Staleness:** `STALE_THRESHOLD_SECONDS` (env `VITE_STALE_THRESHOLD_SECONDS` or 60), `isStale(lastSeenAt)`, `lastSeenLabel(lastSeenAt)` for "X s ago" / "X m ago".
+- **BASE:** In dev, **`''`** (same origin via Vite proxy). In production, **`VITE_API_URL`** or **`''`** for same-origin **`/api`**.
+- **Robot list / proxy:** **`fetchRobotList`**, **`addRobotIp`**, **`removeRobotIp`**, health/modules/pipettes/logs/runs/protocol helpers, **`fetchFleetSnapshot`**, troubleshooting zip.
+- **Errors:** Non-OK responses → parse **`detail`** / **`error`** and throw **`Error`** for React Query.
 
-**Adding a new endpoint:** Local: add `fetchRobotX(ip)` GETing `/api/robots/${encodeURIComponent(ip)}/x`, use `getErrorFromResponse` on failure. Cloud: add a fetcher that passes `authHeaders(token)`.
+**Adding an endpoint:** Add **`fetchRobot…(ip)`** targeting **`/api/robots/${encodeURIComponent(ip)}/…`** and reuse **`getErrorFromResponse`**.

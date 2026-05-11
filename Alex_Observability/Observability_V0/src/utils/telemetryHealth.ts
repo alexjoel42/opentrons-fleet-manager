@@ -1,10 +1,9 @@
 /**
- * Normalize health objects from relay-agent telemetry. Opentrons GET /health JSON
+ * Normalize health objects from robot telemetry. Opentrons GET /health JSON
  * uses robot_serial, robot_model, etc.; older code paths used header-style serial_number.
  */
 import { getRunDisplayName, type RunListItem, type RunsResponse } from '../api/robotApi';
 import { formatNoteTimestamp } from './robotFormat';
-import { deriveRobotFleetVisualStatus, type RobotFleetVisualStatus } from './robotFleetStatus';
 
 export function telemetrySerial(health: Record<string, unknown> | null | undefined): string | null {
   if (!health) return null;
@@ -191,21 +190,3 @@ export function telemetryLastFailedRunLine(runs: unknown): string | null {
   return line;
 }
 
-/** Same fleet status as local dashboard cards, from cloud telemetry health + runs. */
-export function cloudRobotFleetVisualStatus(robot: {
-  health?: unknown;
-  runs?: unknown;
-}): RobotFleetVisualStatus {
-  const health =
-    robot.health && typeof robot.health === 'object'
-      ? (robot.health as Record<string, unknown>)
-      : null;
-  const runsCoerced = coerceRunsForFleetStatus(robot.runs);
-  return deriveRobotFleetVisualStatus({
-    fleetError: null,
-    healthLoading: false,
-    healthError: false,
-    healthData: health,
-    runsData: runsCoerced ?? undefined,
-  });
-}

@@ -56,6 +56,7 @@ export function RobotDetail() {
   >({});
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset local run-note drafts when switching robots
     setPendingRunNotes({});
   }, [ip]);
 
@@ -76,21 +77,6 @@ export function RobotDetail() {
       queryClient.invalidateQueries({ queryKey: ['robot', ip, 'run-notes'] });
     },
   });
-
-  if (!ip) {
-    return (
-      <div className="max-w-3xl">
-        <p className="text-muted-foreground">Missing robot IP.</p>
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="mt-4 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          Back to dashboard
-        </button>
-      </div>
-    );
-  }
 
   const { health, modules, pipettes, isLoading, isError, error, refetch } = robot;
   const healthObj = health.data && typeof health.data === 'object' ? (health.data as Record<string, unknown>) : null;
@@ -117,7 +103,10 @@ export function RobotDetail() {
     return sortRunsNewestFirst(deduped);
   }, [runs.data]);
 
-  const runsList = runsAllDeduped.slice(0, RUNS_LIST_LIMIT);
+  const runsList = useMemo(
+    () => runsAllDeduped.slice(0, RUNS_LIST_LIMIT),
+    [runsAllDeduped],
+  );
 
   const successfulRunDurationStats = useMemo(
     () => averageSuccessfulRunWallClock(runsAllDeduped),
@@ -125,7 +114,6 @@ export function RobotDetail() {
   );
 
   const [runFileNames, setRunFileNames] = useState<Record<string, string>>({});
-  const runIds = runsList.map((r) => r.id).join(',');
   useEffect(() => {
     if (!ip || runsList.length === 0) return;
     const missing = runsList.filter((r) => !r.data?.files?.length);
@@ -139,7 +127,7 @@ export function RobotDetail() {
         })
         .catch(() => {});
     });
-  }, [ip, runIds]);
+  }, [ip, runsList]);
 
   const getRunDisplayLabel = (run: RunListItem) =>
     runFileNames[run.id] ?? getRunDisplayName(run);
@@ -163,6 +151,21 @@ export function RobotDetail() {
     },
     {}
   );
+
+  if (!ip) {
+    return (
+      <div className="max-w-3xl">
+        <p className="text-muted-foreground">Missing robot IP.</p>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="mt-4 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          Back to dashboard
+        </button>
+      </div>
+    );
+  }
 
   const runsNoteMap = runNotesQuery.data?.runs ?? {};
 

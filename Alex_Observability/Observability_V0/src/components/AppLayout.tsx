@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { useAuth } from '../lib/authContext';
 import { FleetStatusLegendBar } from './FleetStatusLegendBar';
 
 const OPENTRONS_LOGO_PATH = '/opentrons-logo.svg';
@@ -8,7 +7,6 @@ const OPENTRONS_LOGO_PATH = '/opentrons-logo.svg';
 export function AppLayout() {
   const [logoError, setLogoError] = useState(false);
   const location = useLocation();
-  const { isCloudMode, token, logout } = useAuth();
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -37,12 +35,9 @@ export function AppLayout() {
               )}
               <span className="font-sans text-base font-semibold text-muted-foreground">Fleet</span>
             </Link>
-            {!isCloudMode && (
-              <FleetStatusLegendBar className="max-w-full lg:max-w-[min(100%,42rem)]" />
-            )}
+            <FleetStatusLegendBar className="max-w-full lg:max-w-[min(100%,42rem)]" />
           </div>
           <nav className="flex shrink-0 flex-wrap items-center gap-1" aria-label="Main">
-          {!isCloudMode && (
             <Link
               to="/"
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
@@ -53,27 +48,17 @@ export function AppLayout() {
             >
               Setup
             </Link>
-          )}
-          <Link
-            to="/dashboard"
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
-              location.pathname === '/dashboard'
-                ? 'bg-accent/10 text-accent'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-          >
-            Dashboard
-          </Link>
-          {isCloudMode && token && (
-            <button
-              type="button"
-              onClick={() => logout()}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            <Link
+              to="/dashboard"
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
+                location.pathname === '/dashboard'
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
             >
-              Sign out
-            </button>
-          )}
-        </nav>
+              Dashboard
+            </Link>
+          </nav>
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 bg-surface px-6 py-8 md:py-10">

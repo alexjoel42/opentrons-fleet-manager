@@ -1,14 +1,9 @@
 # Components — Reusable UI
 
-**Purpose:** Presentational or small container components used by pages.
+**Purpose:** Presentational or small container pieces used by pages.
 
-**Current:**
-- **RobotCard** — Accepts `ip`, optional `onRemove`. Uses `useRobotHealth(ip)`; shows IP, status (ok/loading/error), "View details". Renders a `Link` to `/robot/:ip`. Used on Dashboard (local mode).
-- **AppLayout** — Header with logo, nav (Setup when not cloud, Dashboard, Sign out when cloud + token). Uses `useAuth()` for `isCloudMode`, `token`, `logout`.
-- **CloudSetupAccordion** — Collapsible section for cloud dashboard setup: **`title`**, optional **`defaultOpen`** (defaults **open**; pass **`false`** to start collapsed), **`children`**. Accessible toggle (`aria-expanded`, `aria-controls`, chevron). Used to wrap relay credentials and robot addresses so operators can hide setup when focusing on the fleet.
-- **CloudAgentCredentials** — **`token`**; optional **`embedded`** strips outer card + `<h2>` when nested in **`CloudSetupAccordion`**. Always available on the cloud dashboard after login, even if `GET /api/labs` fails. Includes **User access token (JWT)** — truncated preview + **Copy JWT** (full token to clipboard) for `Authorization: Bearer` / local scripts; copy explains it is **not** `AGENT_TOKEN`. States: loading → error (with **Retry** + **Create lab**) → empty (**Create lab**) → populated (Lab ID, Backend URL, **Generate new agent token**, one-time agent token + example JSON). Mutations share the cache key `['cloud','labs',token]` with `CloudRobotPollTargets`.
-- **CloudRobotPollTargets** — **`token`**; optional **`embedded`** like **`CloudAgentCredentials`**. Lab dropdown (`fetchLabs`), loads/saves **`fetchRobotPollTargets` / `saveRobotPollTargets`** per lab. Rows: address, scheme (http/https), port, remove; **Add row**; **bulk import** textarea using **`parseRobotIpsFromText`** + **`defaultSchemeForRobotAddress`**. **Dirty flag**: local edits are not overwritten by React Query refetches; **`refetchOnWindowFocus: false`** for this query; **save** uses **`setQueryData`** + syncs rows from the PUT response so the cloud list matches what was saved (fixes removed rows / scheme changes not sticking). Returns `null` when no labs exist (no-op until first lab is created via `CloudAgentCredentials`).
+- **RobotCard** — **`ip`**, optional **`onRemove`**. **`useRobotHealth(ip)`**; link to **`/robot/:ip`**.
+- **AppLayout** — Header, logo, nav (Setup, Dashboard), **`Outlet`** for pages.
+- **FleetStatusLegendBar**, **FleetStatusSummaryTable**, **ImportRobotIps** — fleet UX.
 
-**Cloud dashboard** also renders its own fleet card list (links to `/robot/cloud/:id`) with last_seen_at and staleness styling; cloud cards are separate from `RobotCard` to keep cloud-specific props (stale, lastSeenLabel).
-
-**Convention:** Components receive minimal props; they call hooks when they need data. For new cards or tiles, follow the same pattern: hook for data, show loading/error/success, link to detail when relevant.
+Prefer hooks for data; show loading/error/success states consistently.

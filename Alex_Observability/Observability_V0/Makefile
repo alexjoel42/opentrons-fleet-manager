@@ -12,7 +12,7 @@ BACKEND_PORT  ?= 8000
 RELEASE_VERSION ?= 0.0.0-dev
 RELEASE_DIR   := release-artifacts
 
-.PHONY: setup setup-js setup-py typecheck typecheck-js typecheck-py lint lint-js lint-py lint-fix format-fix format-fix-py dev run run-backend backend db-migrate seed-lab run-agent fetch-protocol copy-protocol-to-jupyter help build-release build-release-agent test-release test-release-agent
+.PHONY: setup setup-js setup-py typecheck typecheck-js typecheck-py lint lint-js lint-py lint-fix format-fix format-fix-py dev run run-backend backend fetch-protocol copy-protocol-to-jupyter help build-release test-release
 
 # --- Setup ---
 setup: setup-js setup-py
@@ -104,21 +104,6 @@ run-backend:
 # Alias: "make backend" — same as run-backend (avoids confusion with "make run backend", which is not this).
 backend: run-backend
 
-# --- Cloud (require DATABASE_URL) ---
-db-migrate:
-	@echo "Running Alembic migrations (set DATABASE_URL)..."
-	cd $(BACKEND) && ../$(VENV_BIN)/alembic upgrade head
-
-seed-lab:
-	@echo "Seeding a lab and printing agent token (set DATABASE_URL, optional: make seed-lab LAB_NAME=\"My Lab\")..."
-	cd $(BACKEND) && ../$(VENV_BIN)/python -m scripts.seed_lab "$(LAB_NAME)"
-
-run-agent:
-	@echo "Run the relay agent: export LAB_ID AGENT_TOKEN BACKEND_URL; optional: ROBOT_POLL_INTERVAL_SECONDS"
-	@echo "  $(VENV_BIN)/python agent/run_agent.py"
-	@echo "Or: AGENT_ARGS='--config=agent/agent_config.json' make run-agent"
-	$(VENV_BIN)/python agent/run_agent.py $(AGENT_ARGS)
-
 # Fetch protocol for a run (works without backend: talks to robot directly if backend unreachable)
 fetch-protocol:
 	@if [ -z "$(ROBOT_IP)" ]; then \
@@ -142,52 +127,19 @@ copy-protocol-to-jupyter:
 		cd $(BACKEND) && ../$(VENV_BIN)/python -m scripts.copy_protocol_to_jupyter "$(ROBOT_IP)" $(PROTOCOL_ID); \
 	fi
 
-# --- Release (local build/test; mirrors .github/workflows/release.yml) ---
-# Build only the agent (use when frontend has issues or to quick-validate agent packaging).
-build-release-agent:
-	@echo "Building Python agent only (VERSION=$(RELEASE_VERSION))..."
-	@sed -i.bak "s/^version = .*/version = \"$(RELEASE_VERSION)\"/" agent/pyproject.toml && rm -f agent/pyproject.toml.bak
-	@if command -v uv >/dev/null 2>&1; then \
-		uv build agent/; \
-	else \
-		$(VENV_BIN)/pip install build -q && cd agent && $(VENV_BIN)/python -m build && cd ..; \
-	fi
-	@mkdir -p $(RELEASE_DIR)
-	@rm -f $(RELEASE_DIR)/observability_agent-*.whl $(RELEASE_DIR)/observability_agent-*.tar.gz
-	@cp agent/dist/*.whl agent/dist/*.tar.gz $(RELEASE_DIR)/ 2>/dev/null || true
-	@echo "Agent artifacts in $(RELEASE_DIR)/:"
-	@ls -la $(RELEASE_DIR)/
-
+# --- Release (local build; mirrors .github/workflows/release.yml frontend zip) ---
 build-release:
-	@echo "Building release artifacts (VERSION=$(RELEASE_VERSION))..."
-	@sed -i.bak "s/^version = .*/version = \"$(RELEASE_VERSION)\"/" agent/pyproject.toml && rm -f agent/pyproject.toml.bak
+	@echo "Building release artifact (VERSION=$(RELEASE_VERSION))..."
 	@echo "Building frontend..."
 	npm run build
-	@echo "Building Python agent..."
-	@if command -v uv >/dev/null 2>&1; then \
-		uv build agent/; \
-	else \
-		$(VENV_BIN)/pip install build -q && cd agent && $(VENV_BIN)/python -m build && cd ..; \
-	fi
 	@mkdir -p $(RELEASE_DIR)
 	@echo "Zipping frontend dist..."
 	@cd dist && zip -rq ../$(RELEASE_DIR)/observability-v0-frontend-$(RELEASE_VERSION).zip . && cd ..
-	@rm -f $(RELEASE_DIR)/observability_agent-*.whl $(RELEASE_DIR)/observability_agent-*.tar.gz
-	@cp agent/dist/*.whl agent/dist/*.tar.gz $(RELEASE_DIR)/ 2>/dev/null || true
-	@echo "Release artifacts in $(RELEASE_DIR)/:"
-	@ls -la $(RELEASE_DIR)/
+	@echo "Release artifact: $(RELEASE_DIR)/observability-v0-frontend-$(RELEASE_VERSION).zip"
 
 test-release: build-release
-	@echo "Installing wheel and testing CLI..."
-	$(VENV_BIN)/pip install --force-reinstall $$(ls -t $(RELEASE_DIR)/observability_agent-*.whl 2>/dev/null | head -1) -q
-	$(VENV_BIN)/observability-agent --help
+	@test -f $(RELEASE_DIR)/observability-v0-frontend-$(RELEASE_VERSION).zip
 	@echo "test-release OK."
-
-test-release-agent: build-release-agent
-	@echo "Installing wheel and testing CLI..."
-	$(VENV_BIN)/pip install --force-reinstall $$(ls -t $(RELEASE_DIR)/observability_agent-*.whl 2>/dev/null | head -1) -q
-	$(VENV_BIN)/observability-agent --help
-	@echo "test-release-agent OK."
 
 # --- Help ---
 help:
@@ -211,13 +163,6 @@ help:
 	@echo "  make fetch-protocol ROBOT_IP=198.51.100.73 RUN_ID=<run_id> - Fetch run + protocol from robot (no backend needed)"
 	@echo "  make copy-protocol-to-jupyter ROBOT_IP=... [PROTOCOL_ID=uuid | RUN_ID=run_uuid] - Resolve from run, find protocol dir, copy .py to Jupyter (run on robot)"
 	@echo ""
-	@echo "Cloud (DATABASE_URL required for db-migrate / seed-lab):"
-	@echo "  make db-migrate  - Run Alembic migrations (cd backend, alembic upgrade head)"
-	@echo "  make seed-lab    - Create a lab and print agent token (optional: LAB_NAME=\"My Lab\")"
-	@echo "  make run-agent   - Start relay agent (set LAB_ID, AGENT_TOKEN, BACKEND_URL or AGENT_ARGS)"
-	@echo ""
-	@echo "Release (validate automation locally):"
-	@echo "  make build-release       - Build frontend + agent, zip dist, output to $(RELEASE_DIR)/ (RELEASE_VERSION?=0.0.0-dev)"
-	@echo "  make test-release        - build-release then install wheel and run observability-agent --help"
-	@echo "  make build-release-agent  - Build agent only (skips frontend); use to validate agent packaging"
-	@echo "  make test-release-agent   - build-release-agent then install wheel and run observability-agent --help"
+	@echo "Release:"
+	@echo "  make build-release  - npm run build, zip dist to $(RELEASE_DIR)/ (RELEASE_VERSION?=0.0.0-dev)"
+	@echo "  make test-release   - build-release then verify zip exists"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRobotList, useFleetSnapshot } from '../hooks';
@@ -20,7 +20,7 @@ export function Dashboard() {
   const [newIp, setNewIp] = useState('');
   const [statusFilter, setStatusFilter] = useState<FleetStatusFilter>('all');
 
-  const ips = data?.ips ?? [];
+  const ips = useMemo(() => data?.ips ?? [], [data?.ips]);
   const notesByIp = data?.notes ?? {};
   const fleet = useFleetSnapshot(ips.length > 0);
 
@@ -98,12 +98,6 @@ export function Dashboard() {
     }
     return m as Record<FleetStatusFilter, number>;
   }, [ips, statusForIp]);
-
-  useEffect(() => {
-    if (statusFilter === 'attention' && (filterCounts.attention ?? 0) === 0) {
-      setStatusFilter('all');
-    }
-  }, [statusFilter, filterCounts.attention]);
 
   const visualCounts = useMemo((): Record<RobotFleetVisualStatus, number> => {
     const o = {} as Record<RobotFleetVisualStatus, number>;

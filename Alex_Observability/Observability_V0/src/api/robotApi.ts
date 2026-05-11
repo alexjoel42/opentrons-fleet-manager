@@ -2,13 +2,12 @@
  * API client for robot proxy endpoints. All requests go to the FastAPI backend;
  * the browser never talks to robot IPs directly (avoids CORS).
  *
- * In Vite dev, local fleet mode (`VITE_USE_CLOUD` not true) always uses same-origin `/api/*`
- * so `vite.config.ts` can proxy to the laptop backend. That avoids CORS when `.env` still
- * sets `VITE_API_URL` to a deployed API (needed for cloud auth/UI in the same project).
+ * In dev, use same-origin `/api/*` so Vite proxies to the local backend.
+ * In production, leave `VITE_API_URL` empty for nginx same-origin `/api` on the Pi,
+ * or set it to an explicit API origin if needed.
  */
-const isCloudMode = (import.meta.env.VITE_USE_CLOUD as string) === 'true';
 const BASE =
-  import.meta.env.DEV && !isCloudMode
+  import.meta.env.DEV
     ? ''
     : ((import.meta.env.VITE_API_URL as string) ?? '');
 

@@ -23,6 +23,55 @@ function triggerZipDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Keyed by `ip` + server notes so local draft resets when saved notes load from the API (no sync effect). */
+function RobotNotesEditor({
+  ip,
+  robotNotes,
+  onSaveRobotNotes,
+  isSavingRobotNotes,
+}: {
+  ip: string;
+  robotNotes?: string | null;
+  onSaveRobotNotes: (text: string) => void;
+  isSavingRobotNotes?: boolean;
+}) {
+  const [notesDraft, setNotesDraft] = useState(robotNotes ?? '');
+  return (
+    <div
+      className="mb-4"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Notes
+      </span>
+      <textarea
+        value={notesDraft}
+        onChange={(e) => setNotesDraft(e.target.value)}
+        rows={3}
+        aria-label={`Notes for robot ${ip}`}
+        className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        placeholder="Calibration, quirks, who to ping…"
+      />
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const t = notesDraft.trim();
+          onSaveRobotNotes(t);
+        }}
+        disabled={isSavingRobotNotes}
+        className="mt-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+      >
+        {isSavingRobotNotes ? 'Saving…' : 'Save notes'}
+      </button>
+    </div>
+  );
+}
+
 export interface RobotCardViewProps {
   ip: string;
   onRemove?: () => void;
@@ -59,14 +108,9 @@ export function RobotCardView({
 }: RobotCardViewProps) {
   const { addNotification } = useNotifications();
   const [zipPending, setZipPending] = useState(false);
-  const [notesDraft, setNotesDraft] = useState('');
   const lastNotifiedRunId = useRef<string | null>(null);
   const lastNotifiedPaused = useRef(false);
   const lastNotifiedError = useRef(false);
-
-  useEffect(() => {
-    setNotesDraft(robotNotes ?? '');
-  }, [ip, robotNotes]);
 
   const runsList = Array.isArray(runsData?.data) ? runsData.data : [];
   const currentRun = runsList.find((r) => r.current);
@@ -116,7 +160,7 @@ export function RobotCardView({
         robotIp: ip,
       });
     }
-  }, [currentRun?.id, isPaused, hasRunError, serial, ip, addNotification]);
+  }, [currentRun, isPaused, hasRunError, serial, ip, addNotification]);
 
   const visualStatus = deriveRobotFleetVisualStatus({
     fleetError: fleetError ?? null,
@@ -281,38 +325,13 @@ export function RobotCardView({
           )}
         </div>
         {onSaveRobotNotes != null && (
-          <div
-            className="mb-4"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Notes
-            </span>
-            <textarea
-              value={notesDraft}
-              onChange={(e) => setNotesDraft(e.target.value)}
-              rows={3}
-              aria-label={`Notes for robot ${ip}`}
-              className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="Calibration, quirks, who to ping…"
-            />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const t = notesDraft.trim();
-                onSaveRobotNotes(t);
-              }}
-              disabled={isSavingRobotNotes}
-              className="mt-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
-            >
-              {isSavingRobotNotes ? 'Saving…' : 'Save notes'}
-            </button>
-          </div>
+          <RobotNotesEditor
+            key={`${ip}-${robotNotes ?? ''}`}
+            ip={ip}
+            robotNotes={robotNotes}
+            onSaveRobotNotes={onSaveRobotNotes}
+            isSavingRobotNotes={isSavingRobotNotes}
+          />
         )}
         {pipetteLines.length > 0 && (
           <div className="mb-4">

@@ -261,5 +261,5 @@ sudo systemctl reload nginx
 
 ## Related docs
 
-- Cloud / Vercel / Render: [DEPLOY.md](DEPLOY.md)
+- Deployment overview: [DEPLOY.md](DEPLOY.md)
 - Repo overview: [README.md](../README.md)

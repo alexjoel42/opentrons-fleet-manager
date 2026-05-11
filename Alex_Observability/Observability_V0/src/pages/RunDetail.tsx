@@ -41,20 +41,6 @@ export function RunDetail() {
     queryFn: () => (ip ? fetchRobotRuns(ip) : Promise.reject(new Error('Missing ip'))),
     enabled: Boolean(ip),
   });
-  if (!ip || !runId) {
-    return (
-      <div className="max-w-3xl">
-        <p className="text-muted-foreground">Missing robot IP or run ID.</p>
-        <button
-          type="button"
-          onClick={() => navigate('/dashboard')}
-          className="mt-4 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          Back to dashboard
-        </button>
-      </div>
-    );
-  }
 
   const raw = runPayload as Record<string, unknown> | undefined;
   const run = raw?.data != null ? raw.data : raw;
@@ -90,6 +76,21 @@ export function RunDetail() {
     const deduped = (raw as RunListItem[]).filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
     return averageSuccessfulRunWallClock(deduped);
   }, [runsListPayload]);
+
+  if (!ip || !runId) {
+    return (
+      <div className="max-w-3xl">
+        <p className="text-muted-foreground">Missing robot IP or run ID.</p>
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          className="mt-4 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          Back to dashboard
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl">
