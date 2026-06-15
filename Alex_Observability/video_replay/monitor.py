@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from video_replay import read_robot_logs
+import read_robot_logs
 
 import requests
 
@@ -143,9 +143,20 @@ class Config:
     robots: list[RobotConfig] = field(default_factory=list)
 
 
-def load_config(path: str) -> Config:
+def load_config(path: str, storage_dir: Path) -> Config:
     with open(path, "r") as fh:
         raw = yaml.safe_load(fh) or {}
+
+    def resolve_path(p: str | None, default: str = "") -> str:
+        """Resolves relative paths against the storage directory. Leaves absolute paths alone."""
+        p = str(p or default)
+        if not p:
+            return ""
+        # Expand '~' and resolve against storage_dir if it's a relative path
+        expanded = os.path.expanduser(p)
+        if os.path.isabs(expanded):
+            return expanded
+        return str(storage_dir / p)
 
     robots = [
         RobotConfig(
@@ -153,21 +164,34 @@ def load_config(path: str) -> Config:
             ip=str(r["ip"]),
             slack_channel=str(r.get("slack_channel", "")),
             slack_username=str(r.get("slack_username", "")),
-            config_ini=str(r.get("config_ini", "")),
+            config_ini=resolve_path(r.get("config_ini", "")),
         )
         for r in raw.get("robots", [])
     ]
     if not robots:
         raise SystemExit("No robots defined in config. Add at least one under 'robots:'.")
 
+    raw_notify = raw.get("notify") or {}
+    notify_cfg = NotifyConfig(
+        enabled=bool(raw_notify.get("enabled", False)),
+        type=str(raw_notify.get("type", "none")),
+        token_ini=resolve_path(raw_notify.get("token_ini", "")),
+        token_file=resolve_path(raw_notify.get("token_file", "")),
+        channel=str(raw_notify.get("channel", "")),
+        username=str(raw_notify.get("username", "")),
+        upload_clip=bool(raw_notify.get("upload_clip", True)),
+        webhook_url=str(raw_notify.get("webhook_url", "")),
+        webhook_format=str(raw_notify.get("webhook_format", "slack")),
+    )
+
     return Config(
         poll_interval_seconds=float(raw.get("poll_interval_seconds", 3.0)),
         opentrons_version=str(raw.get("opentrons_version", "2")),
-        output_dir=str(raw.get("output_dir", "./clips")),
-        work_dir=str(raw.get("work_dir", "./recordings")),
+        output_dir=resolve_path(raw.get("output_dir", "./clips")),
+        work_dir=resolve_path(raw.get("work_dir", "./recordings")),
         clip=ClipConfig(**(raw.get("clip") or {})),
         triggers=TriggerConfig(**(raw.get("triggers") or {})),
-        notify=NotifyConfig(**(raw.get("notify") or {})),
+        notify=notify_cfg,
         robots=robots,
     )
 
@@ -409,7 +433,7 @@ class Recorder:
         if self.running:
             return
         os.makedirs(self.seg_dir, exist_ok=True)
-        seg_pattern = os.path.join(self.seg_dir, "seg_%05d.ts")
+        seg_pattern = os.path.join(self.seg_dir, "seg_%07d.ts")
         cmd = [
             "ffmpeg",
             "-nostdin",
@@ -894,7 +918,10 @@ class RobotWatcher(threading.Thread):
 # --------------------------------------------------------------------------- #
 def main() -> None:
     parser = argparse.ArgumentParser(description="Opentrons run monitor + error clip recorder")
-    parser.add_argument("--config", default="config.yaml", help="Path to YAML config")
+    # Add the new storage directory argument
+    parser.add_argument("--storage-directory", required=True, help="Base directory for configs, clips, and recordings")
+    # Make config default to just the filename, since we will append it to storage-directory
+    parser.add_argument("--config", default="config.yaml", help="Name or path of YAML config")
     parser.add_argument("--verbose", action="store_true", help="Debug logging")
     args = parser.parse_args()
 
@@ -902,14 +929,24 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    # Quiet noisy third-party DEBUG logging (e.g. the Slack SDK dumping full
-    # conversations.list responses) even when we run with --verbose.
     logging.getLogger("slack_sdk").setLevel(logging.WARNING)
 
     if shutil.which("ffmpeg") is None:
         raise SystemExit("ffmpeg not found on PATH. Install it (e.g. `sudo apt install ffmpeg`).")
 
-    cfg = load_config(args.config)
+    # Resolve the storage directory and config path
+    storage_dir = Path(args.storage_directory).expanduser().resolve()
+    
+    # If the user passes an absolute path for --config, this will use that absolute path.
+    # Otherwise, it looks for config.yaml inside the storage_directory.
+    config_path = storage_dir / args.config
+
+    if not config_path.exists():
+         raise SystemExit(f"Configuration file not found: {config_path}")
+
+    # Pass the storage_dir to load_config so it can resolve interior paths
+    cfg = load_config(str(config_path), storage_dir)
+    
     os.makedirs(cfg.output_dir, exist_ok=True)
     os.makedirs(cfg.work_dir, exist_ok=True)
 
