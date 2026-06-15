@@ -1,0 +1,13 @@
+requests>=2.31.0
+PyYAML>=6.0
+slack-sdk>=3.21.0
+
+# Transitive deps pulled in when importing abr_testing for read_robot_logs.get_logs
+# (numpy via plate_reader; the rest via the data_collection -> google_sheets_tool chain).
+numpy>=1.24
+oauth2client>=4.1.3
+google-api-python-client>=2.0
+gspread>=6.0
+httplib2>=0.22
+slackclient>=2.9
+websocket-client>=1.0
