@@ -60,6 +60,12 @@ ACTIVE_STATUSES = {
     "awaiting-recovery-blocked-by-open-door",
     "stop-requested",
 }
+
+ERROR_STATUSES = {
+    "awaiting-recovery",
+    "awaiting-recovery-paused",
+    "awaiting-recovery-blocked-by-open-door",
+}
 # Run statuses that mean the run is over; stop recording and clean up.
 TERMINAL_STATUSES = {"succeeded", "failed", "stopped"}
 
@@ -216,6 +222,19 @@ def _read_token_file(path: str) -> str:
 
 
 def _format_message(robot_name: str, meta: dict) -> str:
+    reason = meta.get('reason')
+    protocol = meta.get('protocol_name')
+    if reason == "run_started":
+        return (
+            f":rocket: Protocol: {protocol} has started.\n"
+        )
+    if reason == "error_recovery_instant":
+        return(f":warning: *{robot_name}* is in error recovery mode :warning:\n")
+    
+    if reason == "run_finished":
+        return(f":tada: Protocol {protocol} has finished :tada:")
+    
+    
     return (
         f":rotating_light: *{robot_name}* error clip saved\n"
         f"> reason: {meta.get('reason')}\n"
@@ -309,7 +328,7 @@ class SlackNotifier:
                 channel=self.channel,
                 text=text,
                 username=self.username,
-                icon_emoji=":movie_camera:",
+                icon_emoji=":eyes:",
             )
             thread_ts = parent["ts"]
         except Exception as exc:  # noqa: BLE001
@@ -610,7 +629,6 @@ class RunState:
     last_clip_ts: float = 0.0
     finished: bool = False  # clip captured OR run ended; stop recording it
 
-
 # --------------------------------------------------------------------------- #
 # Robot watcher
 # --------------------------------------------------------------------------- #
@@ -639,6 +657,7 @@ class RobotWatcher(threading.Thread):
         self._recorder_counted = True  # no in-flight start attempt yet
         self._recorder_retry_at = 0.0
         self._started_at = time.time()
+        self._first_poll_done = False
 
     # --- HTTP helpers ----------------------------------------------------- #
     def _get_current_run(self) -> dict | None:
@@ -649,6 +668,29 @@ class RobotWatcher(threading.Thread):
             if run.get("current"):
                 return run
         return None
+    
+    def _get_protocol_name(self, protocol_id: str | None) -> str:
+        if not protocol_id:
+            return "Unknown / No Protocol"
+        try:
+            resp = self.session.get(f"{self.base_url}/protocols/{protocol_id}", timeout=5)
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+            
+            # Try to grab the name from metadata
+            metadata = data.get("metadata", {})
+            name = metadata.get("protocolName") or metadata.get("protocol-name")
+            
+            # Fallback to the uploaded filename if metadata name is empty
+            if not name:
+                files = data.get("files", [])
+                if files:
+                    name = files[0].get("name")
+                    
+            return name or protocol_id
+        except Exception as exc:
+            log.warning("[%s] failed to fetch protocol name for %s: %s", self.robot.name, protocol_id, exc)
+            return protocol_id
 
     # --- trigger evaluation ----------------------------------------------- #
     def _maybe_trigger(self, run: dict) -> None:
@@ -659,9 +701,6 @@ class RobotWatcher(threading.Thread):
         status = run.get("status", "")
         errors = run.get("errors") or []
         now = time.time()
-
-        if now - self._started_at < STARTUP_GRACE_SECONDS:
-            return
 
         # Respect cooldown so one incident doesn't produce many clips.
         if now - state.last_clip_ts < self.cfg.clip.cooldown_seconds:
@@ -681,7 +720,7 @@ class RobotWatcher(threading.Thread):
             # latches True for the rest of the run, so it can't distinguish a second
             # recovery from the first; the awaiting-recovery status does. recovery_reported
             # is re-armed in _handle_run when the run leaves recovery.
-            in_recovery = status.startswith("awaiting-recovery")
+            in_recovery = status in ERROR_STATUSES
             if in_recovery and not state.recovery_reported:
                 reason = "error_recovery"
 
@@ -695,13 +734,30 @@ class RobotWatcher(threading.Thread):
 
         if reason is None:
             return
+        
+        if reason == "error_recovery" and self.notifier is not None:
+            protocol_id = run.get("protocolId")
+            protocol_name = self._get_protocol_name(protocol_id)
+            
+            instant_meta = {
+                "robot": self.robot.name,
+                "robot_ip": self.robot.ip,
+                "run_id": run.get("id", "unknown"),
+                "reason": "error_recovery_instant",
+                "status": status,
+                "protocol_name": protocol_name,
+                "error_detail": detail,
+                "clip_path": None,
+            }
+            self.notifier.notify(self.robot.name, instant_meta)
 
         # Mark everything so we don't double-fire for this same incident.
         state.reported_error_ids.update(e.get("id") for e in errors if e.get("id"))
-        if status.startswith("awaiting-recovery"):
+        
+        # --- MODIFIED: Use your new list ---
+        if status in ERROR_STATUSES:
             state.recovery_reported = True
-        # Any clip covers the terminal failed state too (recovery -> command_error
-        # -> failed is one incident, not three).
+            
         state.failed_reported = True
         state.last_clip_ts = now
 
@@ -780,22 +836,86 @@ class RobotWatcher(threading.Thread):
 
         run_id = run.get("id", "")
         status = run.get("status", "")
+        
+        # REMOVED: self.run_state.finished = False
 
         # New run started (or replaced the previous one).
-        if self.run_state is None or self.run_state.run_id != run_id:
+        is_new_run = (self.run_state is None or self.run_state.run_id != run_id)
+        if status != "idle" and is_new_run:
             self.recorder.stop()
             self.recorder.cleanup()
             self._reset_recorder_health()
-            self.run_state = RunState(run_id=run_id)
+            
+            # --- THE BATCH SAFEGUARD ---
+            # If the script just booted up (first poll), assume everything currently 
+            # happening is old news. If it's a normal live monitor, treat it as fresh.
+            is_startup = not getattr(self, "_first_poll_done", False)
+            
+            existing_errors = {e.get("id") for e in run.get("errors", []) if e.get("id")}
+            is_recovering = status in ERROR_STATUSES
+            is_failed = status == "failed"
+            
+            self.run_state = RunState(
+                run_id=run_id,
+                # Seed the state so existing conditions aren't treated as "new" triggers
+                reported_error_ids=existing_errors if is_startup else set(),
+                recovery_reported=is_recovering if is_startup else False,
+                in_recovery=is_recovering,
+                failed_reported=is_failed if is_startup else False
+            ) 
+            
             log.info("[%s] monitoring run %s (status=%s)", self.robot.name, run_id[:8], status)
+
+            # --- RUN START NOTIFICATION ---
+            # Only alert if this run genuinely just started while we were watching
+            if self.notifier is not None and not is_startup:
+                protocol_id = run.get("protocolId")
+                protocol_name = self._get_protocol_name(protocol_id)
+
+                start_meta = {
+                    "robot": self.robot.name,
+                    "robot_ip": self.robot.ip,
+                    "run_id": run_id,
+                    "reason": "run_started",
+                    "status": status,
+                    "protocol_name": protocol_name,
+                    "error_detail": None,
+                    "clip_path": None,
+                }
+                self.notifier.notify(self.robot.name, start_meta)
+        # SAFETY NET: If the run was idle and we skipped creating a RunState, stop here!
+        if self.run_state is None:
+            return
 
         # Run already ended (terminal) -> stop touching it.
         if self.run_state.finished:
+            print(f"sup {self.robot.name}")
             return
 
         if status in TERMINAL_STATUSES:
             # Evaluate one last time (a fail still has errors worth clipping)…
             self._maybe_trigger(run)
+
+            # --- RUN FINISHED NOTIFICATION ---
+            is_startup = not getattr(self, "_first_poll_done", False)
+            
+            # Only celebrate if it actually succeeded (not failed/stopped) and we didn't just boot up
+            if status == "succeeded" and self.notifier is not None and not is_startup:
+                protocol_id = run.get("protocolId")
+                protocol_name = self._get_protocol_name(protocol_id)
+
+                finish_meta = {
+                    "robot": self.robot.name,
+                    "robot_ip": self.robot.ip,
+                    "run_id": run_id,
+                    "reason": "run_finished",
+                    "status": status,
+                    "protocol_name": protocol_name,
+                    "error_detail": None,
+                    "clip_path": None,
+                }
+                self.notifier.notify(self.robot.name, finish_meta)
+                
             # …then stop recording for this run and mark it done so the restart
             # guard in run() doesn't keep re-spawning ffmpeg on a finished run.
             self.recorder.stop()
@@ -804,7 +924,7 @@ class RobotWatcher(threading.Thread):
             return
 
         if status in ACTIVE_STATUSES:
-            in_recovery = status.startswith("awaiting-recovery")
+            in_recovery = status in ERROR_STATUSES
             if in_recovery:
                 # Don't collect live video while awaiting recovery. On entry the
                 # recorder is still running so _maybe_trigger can grab the clip
@@ -827,6 +947,8 @@ class RobotWatcher(threading.Thread):
                     self.run_state.recovery_reported = False
                 self.run_state.in_recovery = False
             self._maybe_trigger(run)
+
+        self._first_poll_done = True
 
     def _ensure_recording(self) -> None:
         """Keep the recorder running, backing off when the stream is unavailable.
