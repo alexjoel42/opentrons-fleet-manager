@@ -73,7 +73,7 @@ TERMINAL_STATUSES = {"succeeded", "failed", "stopped"}
 # recorder stops running, so a naive "restart if not running" loop respawns it
 # every poll. Once we've seen this many consecutive failed starts we conclude
 # the stream is down and only retry every STREAM_RETRY_BACKOFF seconds.
-STREAM_DOWN_AFTER_FAILURES = 2
+STREAM_DOWN_AFTER_FAILURES = 0 #TODO: fix this memory leak??
 STREAM_RETRY_BACKOFF = 60.0
 # Ignore all error triggers for this long after the watcher starts so a robot
 # already sitting in error recovery doesn't immediately alert (no video buffer
@@ -229,7 +229,7 @@ def _format_message(robot_name: str, meta: dict) -> str:
             f":rocket: Protocol: {protocol} has started.\n"
         )
     if reason == "error_recovery_instant":
-        return(f":warning: *{robot_name}* is in error recovery mode :warning:\n")
+        return(f":distorted_face: *{robot_name}* is in error recovery mode\n")
     
     if reason == "run_finished":
         return(f":tada: Protocol {protocol} has finished :tada:")
