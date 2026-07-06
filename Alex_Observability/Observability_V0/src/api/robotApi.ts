@@ -85,6 +85,29 @@ export async function releaseRobotCheckout(ip: string): Promise<{ ip: string; re
   return data as { ip: string; released: boolean };
 }
 
+export interface FleetErrorTicketResponse {
+  ip: string;
+  title: string;
+  project_key: string;
+  stdout: string;
+  stderr: string;
+}
+
+/** Create a Jira error ticket for one robot via abr_testing (backend subprocess). */
+export async function createRobotFleetErrorTicket(
+  ip: string,
+  title: string,
+): Promise<FleetErrorTicketResponse> {
+  const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/fleet-error-ticket`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: title.trim() }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getTicketCommandErrorFromResponse(data, res.statusText));
+  return data as FleetErrorTicketResponse;
+}
+
 export async function fetchRobotList(): Promise<RobotListResponse> {
   const res = await fetch(`${BASE}/api/robots`);
   if (!res.ok) throw new Error('Failed to load robot list');
@@ -186,6 +209,20 @@ function getErrorFromResponse(data: unknown, fallback: string): string {
   if (typeof d?.detail === 'string') return d.detail;
   if (d?.error) return d.error;
   return fallback;
+}
+
+function getTicketCommandErrorFromResponse(data: unknown, fallback: string): string {
+  const d = data as {
+    detail?: { error?: string; stderr?: string; stdout?: string } | string;
+    error?: string;
+  };
+  if (d?.detail && typeof d.detail === 'object') {
+    const parts = [d.detail.stderr, d.detail.stdout, d.detail.error].filter(
+      (part): part is string => typeof part === 'string' && part.trim().length > 0,
+    );
+    if (parts.length > 0) return parts.join('\n\n');
+  }
+  return getErrorFromResponse(data, fallback);
 }
 
 export async function fetchRobotHealth(ip: string): Promise<Record<string, unknown>> {

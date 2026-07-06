@@ -5,3 +5,9 @@
   text-decoration: none;
   color: inherit;
 }
+
+/* Allow selecting traceback/output inside clickable cards */
+.robot-card-link .select-text {
+  user-select: text;
+  -webkit-user-select: text;
+}

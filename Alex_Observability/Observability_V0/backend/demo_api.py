@@ -16,6 +16,8 @@ import logging
 import ipaddress
 import json
 import os
+import subprocess
+import sys
 import threading
 import zipfile
 from urllib.parse import quote
@@ -35,6 +37,13 @@ _log = logging.getLogger(__name__)
 DEFAULT_PORT = 31950
 # Default request timeout in seconds for robot HTTP calls.
 DEFAULT_TIMEOUT = 10.0
+
+# Fleet error ticket subprocess (abr_testing.data_collection.robot_fleet_error).
+ABR_REPO_ROOT = Path(os.path.expanduser(os.environ.get("ABR_REPO_ROOT", "."))).resolve()
+ABR_PYTHONPATH = os.environ.get("ABR_PYTHONPATH", "~/ticket-creation/abr-testing")
+ABR_ERRORS_DIR = os.environ.get("ABR_ERRORS_DIR", "~/ticket-creation/Errors")
+ABR_PYTHON = os.environ.get("ABR_PYTHON", sys.executable)
+ABR_TICKET_TIMEOUT = float(os.environ.get("ABR_TICKET_TIMEOUT", "300"))
 class BaseRobot:
     """
     Client for querying Opentrons robots over the HTTP API.
@@ -1170,6 +1179,98 @@ def release_robot_checkout(ip: str) -> dict[str, Any]:
         if removed is not None:
             _save_robot_checkouts_unlocked(checkouts)
     return {"ip": key, "released": removed is not None}
+
+
+def _abr_path(relative_or_absolute: str) -> Path:
+    p = Path(os.path.expanduser(relative_or_absolute))
+    return p.resolve() if p.is_absolute() else (ABR_REPO_ROOT / p).resolve()
+
+
+def _project_key_for_robot_name(robot_name: str | None) -> str:
+    """RABR for ABR fleet robots; RQA otherwise."""
+    if robot_name and "ABR" in robot_name.upper():
+        return "RABR"
+    return "RQA"
+
+
+def _project_key_for_robot_ip(ip: str) -> str:
+    try:
+        health = robot_client.get_health(ip)
+        name = health.get("name")
+        return _project_key_for_robot_name(str(name) if name is not None else None)
+    except Exception as exc:
+        _log.warning("Could not fetch robot health for project_key (%s): %s", ip, exc)
+        return "RQA"
+
+
+@app.post("/api/robots/{ip}/fleet-error-ticket")
+def create_fleet_error_ticket(ip: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Create a Jira error ticket via abr_testing.data_collection.robot_fleet_error."""
+    validate_ip(ip)
+    key = ip.strip()
+    title = (body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": 'Body must include non-empty "title"', "code": "INVALID_BODY"},
+        )
+    title = title[:500]
+    project_key = _project_key_for_robot_ip(key)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(_abr_path(ABR_PYTHONPATH))
+    errors_dir = _abr_path(ABR_ERRORS_DIR)
+    cmd = [
+        ABR_PYTHON,
+        "-m",
+        "abr_testing.data_collection.robot_fleet_error",
+        str(errors_dir),
+        "--ip_address",
+        key,
+        "--project_key",
+        project_key,
+        "--title",
+        title,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(ABR_REPO_ROOT),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=ABR_TICKET_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail={"error": "Ticket command timed out", "code": "TICKET_TIMEOUT"},
+        )
+    except OSError as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": str(e), "code": "TICKET_SPAWN_FAILED"},
+        )
+
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "Ticket command failed").strip()
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": err,
+                "code": "TICKET_COMMAND_FAILED",
+                "stdout": proc.stdout,
+                "stderr": proc.stderr,
+            },
+        )
+
+    return {
+        "ip": key,
+        "title": title,
+        "project_key": project_key,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
 
 
 @app.post("/api/robots")

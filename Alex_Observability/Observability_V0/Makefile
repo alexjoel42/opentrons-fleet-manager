@@ -12,7 +12,10 @@ BACKEND_PORT  ?= 8000
 RELEASE_VERSION ?= 0.0.0-dev
 RELEASE_DIR   := release-artifacts
 
-.PHONY: setup setup-js setup-py typecheck typecheck-js typecheck-py lint lint-js lint-py lint-fix format-fix format-fix-py dev run run-backend backend fetch-protocol copy-protocol-to-jupyter help build-release test-release
+.PHONY: setup setup-js setup-py setup-abr install-abr-deps typecheck typecheck-js typecheck-py lint lint-js lint-py lint-fix format-fix format-fix-py dev run run-backend backend fetch-protocol copy-protocol-to-jupyter help build-release test-release
+
+# Path to abr-testing checkout (override in .env as ABR_PYTHONPATH).
+ABR_TESTING_DIR ?= $(HOME)/ticket-creation/abr-testing
 
 # --- Setup ---
 setup: setup-js setup-py
@@ -33,7 +36,33 @@ setup-py:
 	else \
 		echo "No backend/requirements.txt found; venv ready."; \
 	fi
+	@if [ -f $(BACKEND)/requirements-abr.txt ]; then \
+		echo "Installing abr-testing runtime deps from $(BACKEND)/requirements-abr.txt..."; \
+		$(VENV_BIN)/pip install -r $(BACKEND)/requirements-abr.txt; \
+	fi
 	@echo "setup-py done. Use: source $(VENV_BIN)/activate"
+	@echo "For full abr-testing monorepo deps (editable opentrons packages), also run: make setup-abr"
+
+# Mirror abr-testing/Makefile setup: pipenv sync in the abr-testing checkout.
+setup-abr:
+	@echo "Installing abr-testing deps via pipenv..."
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	ABR_DIR="$${ABR_PYTHONPATH:-$(ABR_TESTING_DIR)}"; \
+	if [ ! -f "$$ABR_DIR/Pipfile" ]; then \
+		echo "No Pipfile at $$ABR_DIR — set ABR_PYTHONPATH in .env"; exit 1; \
+	fi; \
+	cd "$$ABR_DIR" && pipenv sync
+	@echo "setup-abr done."
+	@echo "Optional: set ABR_PYTHON=$$ABR_DIR/.venv/bin/python in .env to use the pipenv interpreter for tickets."
+
+# Install abr-testing PyPI deps into an existing Observability .venv (no pipenv required).
+install-abr-deps:
+	@if [ ! -x $(VENV_BIN)/pip ]; then \
+		echo "Run make setup-py first (missing $(VENV))"; exit 1; \
+	fi
+	@echo "Installing abr-testing runtime deps into $(VENV)..."
+	$(VENV_BIN)/pip install -r $(BACKEND)/requirements-abr.txt
+	@echo "install-abr-deps done."
 
 # --- Typecheck ---
 typecheck: typecheck-js typecheck-py
@@ -99,6 +128,7 @@ run-dev:
 # Run in a separate terminal from Vite so /api proxy (default target above) can connect.
 run-backend:
 	@echo "Starting FastAPI on http://localhost:$(BACKEND_PORT) (Vite proxies /api here unless BACKEND_TARGET_URL is set)"
+	@set -a; [ -f .env ] && . ./.env; set +a; \
 	cd $(BACKEND) && ../$(VENV_BIN)/uvicorn demo_api:app --reload --port $(BACKEND_PORT)
 
 # Alias: "make backend" — same as run-backend (avoids confusion with "make run backend", which is not this).
@@ -148,7 +178,9 @@ help:
 	@echo "Setup:"
 	@echo "  make setup       - Install JS and Python deps (recommended first)"
 	@echo "  make setup-js    - Install npm deps"
-	@echo "  make setup-py    - Create .venv and install backend requirements"
+	@echo "  make setup-py    - Create .venv; install backend + abr-testing PyPI deps"
+	@echo "  make setup-abr   - pipenv sync in abr-testing (full monorepo deps; set ABR_PYTHONPATH in .env)"
+	@echo "  make install-abr-deps - pip install abr-testing PyPI deps into existing .venv"
 	@echo ""
 	@echo "Quality:"
 	@echo "  make typecheck   - Run TypeScript and Python type checks"

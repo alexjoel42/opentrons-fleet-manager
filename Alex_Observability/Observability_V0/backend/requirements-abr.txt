@@ -1,0 +1,16 @@
+# Runtime deps for abr_testing.data_collection.robot_fleet_error (from abr-testing/Pipfile).
+# Editable monorepo packages (opentrons, hardware-testing, etc.) are not listed here;
+# run `make setup-abr` for a full pipenv sync when using the Opentrons monorepo checkout.
+requests>=2.27.0
+websocket-client>=1.0.0
+paramiko>=3.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+google-api-python-client>=2.0.0
+httplib2==0.22.0
+oauth2client==4.1.3
+gspread==6.0.2
+slack-sdk==3.39.0
+slackclient>=2.9.0
+pydantic==2.9.0
+anyio==4.9.0
