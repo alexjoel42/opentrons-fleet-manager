@@ -15,6 +15,7 @@ import {
 } from '../utils/robotFleetStatus';
 import {
   checkoutRobot,
+  createRobotFleetErrorTicket,
   defaultNotesOperatorName,
   fetchTroubleshootingZip,
   getRunDisplayName,
@@ -30,6 +31,52 @@ function triggerZipDownload(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Selectable command output inside a card link; includes one-click copy. */
+function TicketOutputBlock({ text, variant }: { text: string; variant: 'error' | 'success' }) {
+  const [copied, setCopied] = useState(false);
+  const tone =
+    variant === 'error'
+      ? 'bg-error/10 text-error'
+      : 'bg-background text-muted-foreground';
+
+  const stopLink = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    stopLink(e);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore — user can still select manually */
+    }
+  };
+
+  return (
+    <div className="mt-2" onMouseDown={stopLink} onClick={stopLink}>
+      <div className="mb-1 flex justify-end">
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="rounded-md border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+      <pre
+        className={`data-block max-h-[min(320px,50vh)] w-full min-w-0 cursor-text select-text overflow-auto whitespace-pre-wrap break-all rounded-md p-2 text-xs leading-relaxed ${tone}`}
+        role={variant === 'error' ? 'alert' : 'status'}
+        tabIndex={0}
+      >
+        {text}
+      </pre>
+    </div>
+  );
 }
 
 /** Keyed by `ip` + server notes so local draft resets when saved notes load from the API (no sync effect). */
@@ -125,6 +172,7 @@ export function RobotCardView({
   const { addNotification } = useNotifications();
   const [zipPending, setZipPending] = useState(false);
   const [operatorName, setOperatorName] = useState(defaultNotesOperatorName);
+  const [ticketTitle, setTicketTitle] = useState('');
   const lastNotifiedRunId = useRef<string | null>(null);
   const lastNotifiedPaused = useRef(false);
   const lastNotifiedError = useRef(false);
@@ -235,12 +283,28 @@ export function RobotCardView({
     },
   });
 
+  const ticketMutation = useMutation({
+    mutationFn: () => {
+      const t = ticketTitle.trim();
+      if (!t) throw new Error('Enter a ticket title');
+      return createRobotFleetErrorTicket(ip, t);
+    },
+  });
+
   const isError = visualStatus === 'unreachable' || visualStatus === 'failed' || visualStatus === 'error';
+  const isUnreachable = visualStatus === 'unreachable';
 
   return (
-    <Link to={`/robot/${encodeURIComponent(ip)}`} className="robot-card-link group block">
+    <Link
+      to={`/robot/${encodeURIComponent(ip)}`}
+      className="robot-card-link group block min-w-0"
+      onClick={(e) => {
+        const sel = window.getSelection();
+        if (sel?.toString()) e.preventDefault();
+      }}
+    >
       <div
-        className="robot-fleet-card relative overflow-hidden rounded-lg border border-border border-l-4 bg-card p-5 shadow-md transition-all duration-200 hover:shadow-md dark:border-border"
+        className="robot-fleet-card relative min-w-0 overflow-x-auto overflow-y-visible rounded-lg border border-border border-l-4 bg-card p-5 shadow-md transition-all duration-200 hover:shadow-md dark:border-border"
         data-fleet-status={visualStatus}
       >
         <div className="mb-1 flex items-start justify-between gap-2">
@@ -293,6 +357,59 @@ export function RobotCardView({
             <span className="text-xs text-muted-foreground" title="Robot software version (health.api_version)">
               Software: {softwareVersion}
             </span>
+          ) : null}
+        </div>
+        <div
+          className="mb-4 min-w-0 rounded-lg border border-border bg-muted/25 p-3"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Error ticket
+          </span>
+          <label htmlFor={`ticket-title-${ip}`} className="sr-only">
+            Jira ticket title
+          </label>
+          <input
+            id={`ticket-title-${ip}`}
+            type="text"
+            value={ticketTitle}
+            onChange={(e) => setTicketTitle(e.target.value)}
+            placeholder="Ticket title"
+            disabled={isUnreachable}
+            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          />
+          <button
+            type="button"
+            disabled={ticketMutation.isPending || !ticketTitle.trim() || isUnreachable}
+            title={isUnreachable ? 'Robot is unreachable' : undefined}
+            onClick={() => ticketMutation.mutate()}
+            className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {ticketMutation.isPending ? 'Creating ticket…' : 'Create error ticket'}
+          </button>
+          {ticketMutation.isError && (
+            <TicketOutputBlock
+              variant="error"
+              text={
+                ticketMutation.error instanceof Error
+                  ? ticketMutation.error.message
+                  : 'Ticket creation failed'
+              }
+            />
+          )}
+          {ticketMutation.isSuccess && ticketMutation.data.stdout.trim() ? (
+            <TicketOutputBlock variant="success" text={ticketMutation.data.stdout.trim()} />
+          ) : null}
+          {ticketMutation.isSuccess && !ticketMutation.data.stdout.trim() ? (
+            <p className="mt-2 text-xs text-muted-foreground" role="status">
+              Ticket created.
+            </p>
           ) : null}
         </div>
         {enableCheckout && (

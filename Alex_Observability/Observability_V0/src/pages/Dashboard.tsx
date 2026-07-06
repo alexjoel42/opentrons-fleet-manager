@@ -508,7 +508,7 @@ export function Dashboard() {
               No robots match this filter. Choose another status or clear the filter.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {filteredIps.map((ip) => {
                 const row = snap?.robots[ip];
                 const perIpError = snap?.errors[ip];
