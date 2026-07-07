@@ -1,5 +1,9 @@
 import argparse
 import json
+import shutil
+import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 from collections import deque
@@ -21,6 +25,52 @@ def ensure_memory_results_dir() -> Path:
     return MEMORY_RESULTS_DIR
 
 
+def utcstamp() -> str:
+    """Filesystem-safe UTC timestamp, e.g. 20260707T162430Z."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def find_name(ip_address: str) -> str:
+    try:
+        health = requests.get(
+            f"http://{ip_address}:31950/health",
+            headers={"opentrons-version": "*"},
+            timeout=10,
+        )
+        name = health.json().get("name") or ip_address
+        return sanitize_robot_name(str(name))
+    except Exception:
+        return sanitize_robot_name(ip_address)
+
+
+def sanitize_robot_name(name: str) -> str:
+    """Make robot names safe for directory and file names."""
+    cleaned = "".join(
+        char if char.isalnum() or char in "-_" else "_"
+        for char in name.strip()
+    ).strip("_")
+    return cleaned or "robot"
+
+
+def create_session_dir(output_dir: Path, robot_name: str) -> Path:
+    session_dir = output_dir / f"{robot_name}_{utcstamp()}"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    return session_dir
+
+
+def limit_folders(output_dir: Path, keep: int = 15) -> None:
+    """Keep only the most recent session folders."""
+    if keep <= 0:
+        return
+    dirs = sorted(
+        (p for p in output_dir.iterdir() if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for path in dirs[keep:]:
+        shutil.rmtree(path, ignore_errors=True)
+
+
 @dataclass
 class memoryInfo:
     """a class for memory info"""
@@ -36,22 +86,31 @@ class memoryInfo:
 
 def stream_system_memory(ip_address: str, interval_seconds: int) -> Iterator[memoryInfo]:
     remote_cmd = f"""
-    while true; do
-    date -Iseconds
-    free -m
-    echo "---"
-    sleep {interval_seconds}
-    done
-    """
+while true; do
+  date -Iseconds
+  free -m
+  echo "---"
+  sleep {interval_seconds}
+done
+"""
 
     proc = subprocess.Popen(
-        ["ssh", f"root@{ip_address}", remote_cmd],
+        [
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            f"root@{ip_address}",
+            remote_cmd,
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
     )
 
+    yielded = False
     try:
         if proc.stdout is None:
             raise RuntimeError("Failed to open SSH stdout stream")
@@ -59,18 +118,42 @@ def stream_system_memory(ip_address: str, interval_seconds: int) -> Iterator[mem
         sample_lines: list[str] = []
         for line in proc.stdout:
             if line.strip() == "---":
-                yield parse_memory_sample(sample_lines)
+                sample = parse_memory_sample(sample_lines)
+                if sample is not None:
+                    yielded = True
+                    yield sample
                 sample_lines = []
                 continue
             sample_lines.append(line)
     finally:
         proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        stderr = proc.stderr.read().strip() if proc.stderr else ""
+        if not yielded:
+            detail = stderr or f"ssh exited with code {proc.returncode}"
+            raise ConnectionError(
+                f"Could not read memory from root@{ip_address}: {detail}"
+            )
 
 
-def parse_memory_sample(sample_lines: list[str]) -> memoryInfo:
+def parse_memory_sample(sample_lines: list[str]) -> memoryInfo | None:
+    if not sample_lines:
+        return None
+
     timestamp = sample_lines[0].strip()
-    mem_line = next(line for line in sample_lines if line.startswith("Mem:"))
-    _, total, used, free, shared, cache, available = mem_line.split()
+    mem_lines = [line for line in sample_lines if line.startswith("Mem:")]
+    if not mem_lines:
+        return None
+
+    parts = mem_lines[0].split()
+    if len(parts) < 7:
+        return None
+
+    _, total, used, free, shared, cache, available = parts[:7]
 
     return memoryInfo(
         timestamp=timestamp,
@@ -133,37 +216,20 @@ done
     return parse_process_output(result.stdout)
 
 
-def init_json(ip_address: str, output_dir: Path) -> Path:
-    """Initialize a JSONL file in output_dir and return its path."""
-    try:
-        health = requests.get(
-            f"http://{ip_address}:31950/health",
-            headers={"opentrons-version": "*"},
-            timeout=10,
-        )
-        robot_name = health.json().get("name", ip_address)
-    except Exception:
-        robot_name = ip_address
-
-    json_path = output_dir / f"{robot_name}_memory.jsonl"
-    json_path.touch()
-    return json_path
-
-
 def make_plot(json_path: Path) -> None:
     memory_rows = read_memory_use(json_path)
     if not memory_rows:
         print(f"No memory data found in {json_path}")
         return
 
-    df = pd.DataFrame(memory_rows, columns=["timestamp", "available_memory_percent"])
+    df = pd.DataFrame(memory_rows, columns=["timestamp", "memory_percent_used"])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     fig, ax = plt.subplots()
-    ax.plot(df["timestamp"], df["available_memory_percent"])
-    ax.set_title("Available Memory Over Time")
+    ax.plot(df["timestamp"], df["memory_percent_used"])
+    ax.set_title("Used Memory Over Time")
     ax.set_xlabel("Time")
-    ax.set_ylabel("Available Memory (%)")
+    ax.set_ylabel("Memory Usage (%)")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
     fig.autofmt_xdate()
     fig.tight_layout()
@@ -184,7 +250,7 @@ def read_memory_use(json_path: Path) -> list[tuple[str, float]]:
             timestamp = list(obj.keys())[0]
             inner = obj[timestamp]
             maintenance = inner.get("maintenance", {})
-            memory_percent = maintenance.get("available_memory_percent")
+            memory_percent = maintenance.get("used_memory_percent")
             if memory_percent is not None:
                 rows.append((timestamp, memory_percent))
     return rows
@@ -214,73 +280,103 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_dir = ensure_memory_results_dir()
-    print(f"Writing results to {output_dir}", flush=True)
 
-    ip_address = args.ip_address or input("Enter Robot IP: ")
-    available_history = deque(maxlen=12)
-    json_path = init_json(ip_address, output_dir)
+    if args.ip_address:
+        ip_address = args.ip_address
+    else:
+        try:
+            ip_address = input("Enter Robot IP: ").strip()
+        except EOFError:
+            print(
+                "Robot IP is required. Run: python3 ram_tracker.py --ip_address <robot-ip>",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+        if not ip_address:
+            print("Robot IP is required.", file=sys.stderr)
+            raise SystemExit(1)
+
+    robot_name = find_name(ip_address)
+    session_dir = create_session_dir(output_dir, robot_name)
+    json_path = session_dir / f"{robot_name}_memory.jsonl"
+    json_path.touch()
+    print(f"Writing results to {session_dir}", flush=True)
+
+    used_history = deque(maxlen=12)
     try:
-        for memory_sample in stream_system_memory(ip_address, args.interval_seconds):
-            available_history.append(memory_sample.available)
-            available_pct = round((memory_sample.available / memory_sample.total)*100, 3)
-            json_msg = {
-                memory_sample.timestamp: {
-                    "maintenance": {
-                        "available_memory_percent": available_pct,
-                        "available_memory_mb": memory_sample.available,
-                    },
-                    "events": [],
-                }
-            }
-            maintenance = json_msg[memory_sample.timestamp]
+        while True:
+            try:
+                for memory_sample in stream_system_memory(
+                    ip_address, args.interval_seconds
+                ):
+                    used_history.append(memory_sample.used)
+                    used_pct = round(
+                        (memory_sample.used / memory_sample.total) * 100, 3
+                    )
+                    json_msg = {
+                        memory_sample.timestamp: {
+                            "maintenance": {
+                                "used_memory_percent": used_pct,
+                                "used_memory_mb": memory_sample.used,
+                            },
+                            "events": [],
+                        }
+                    }
+                    maintenance = json_msg[memory_sample.timestamp]
 
-            if len(available_history) < available_history.maxlen:
-                maintenance["events"].append(
-                    {
-                        "message": "No Warnings",
-                    }
-                )
-                print(json.dumps(json_msg), flush=True)
-                with open(json_path, "a") as json_file:
-                    json_file.write(json.dumps(json_msg) + "\n")
-                continue
+                    if len(used_history) < used_history.maxlen:
+                        maintenance["events"].append(
+                            {
+                                "message": "No Warnings",
+                            }
+                        )
+                        print(json.dumps(json_msg), flush=True)
+                        with open(json_path, "a") as json_file:
+                            json_file.write(json.dumps(json_msg) + "\n")
+                        continue
 
-            baseline = sum(available_history) / len(available_history)
-            drop_from_baseline = baseline - memory_sample.available
-            if available_pct < 10.0:
-                top_memory_processes = find_processes(ip_address)
-                maintenance["events"].append(
-                    {
-                        "message": "Low available memory",
-                        "top_memory_processes": top_memory_processes,
-                    }
-                )
-            elif memory_sample.available < baseline * 0.80:
-                top_memory_processes = find_processes(ip_address)
-                maintenance["events"].append(
-                    {
-                        "message": "Available memory dropped below .8 of baseline",
-                        "top_memory_processes": top_memory_processes,
-                    }
-                )
-            elif drop_from_baseline > 150:
-                top_memory_processes = find_processes(ip_address)
-                maintenance["events"].append(
-                    {
-                        "message": "Available memory dropped by more than 150 MB",
-                        "top_memory_processes": top_memory_processes,
-                    }
-                )
-            else:
-                maintenance["events"].append(
-                    {
-                        "message": "Not Enough",
-                    }
-                )
+                    baseline = sum(used_history) / len(used_history)
+                    increase_from_baseline = memory_sample.used - baseline
+                    if used_pct > 90.0:
+                        top_memory_processes = find_processes(ip_address)
+                        maintenance["events"].append(
+                            {
+                                "message": "High memory usage",
+                                "top_memory_processes": top_memory_processes,
+                            }
+                        )
+                    elif memory_sample.used > baseline * 1.20:
+                        top_memory_processes = find_processes(ip_address)
+                        maintenance["events"].append(
+                            {
+                                "message": "Used memory rose above 1.2x baseline",
+                                "top_memory_processes": top_memory_processes,
+                            }
+                        )
+                    elif increase_from_baseline > 150:
+                        top_memory_processes = find_processes(ip_address)
+                        maintenance["events"].append(
+                            {
+                                "message": "Used memory increased by more than 150 MB",
+                                "top_memory_processes": top_memory_processes,
+                            }
+                        )
+                    else:
+                        maintenance["events"].append(
+                            {
+                                "message": "No Warnings",
+                            }
+                        )
 
-            print(json.dumps(json_msg), flush=True)
-            with open(json_path, "a") as json_file:
-                json_file.write(json.dumps(json_msg) + "\n")
+                    print(json.dumps(json_msg), flush=True)
+                    with open(json_path, "a") as json_file:
+                        json_file.write(json.dumps(json_msg) + "\n")
+            except ConnectionError as exc:
+                print(f"{exc}", flush=True)
+                print("Retrying SSH in 5 seconds...", flush=True)
+                time.sleep(5)
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Creating memory plot...", flush=True)
         make_plot(json_path)
+        limit_folders(output_dir)
+        print(f"Session saved to {session_dir}", flush=True)
