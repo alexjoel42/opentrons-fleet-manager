@@ -1,4 +1,4 @@
-# OS Generated Files
+# OS Generated Files (also covered by repo-root .gitignore)
 .DS_Store
 .DS_Store?
 ._*
@@ -7,8 +7,9 @@
 ehthumbs.db
 Thumbs.db
 
-# Python
+# Python (also covered by repo-root .gitignore)
 __pycache__/
+.ruff_cache/
 *.py[cod]
 *$py.class
 *.so
