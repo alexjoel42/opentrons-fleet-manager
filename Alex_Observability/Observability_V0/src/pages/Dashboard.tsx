@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRobotList, useFleetSnapshot, useDashboards } from '../hooks';
@@ -68,14 +68,14 @@ export function Dashboard() {
     });
   }, [dashData, extraDashboardSlugs]);
 
-  useEffect(() => {
-    if (dashboardTab !== ALL_DASHBOARD && slugKeys.length > 0 && !slugKeys.includes(dashboardTab)) {
-      setDashboardTab(ALL_DASHBOARD);
-    }
-  }, [slugKeys, dashboardTab]);
+  const activeDashboardTab = useMemo(() => {
+    if (dashboardTab === ALL_DASHBOARD) return ALL_DASHBOARD;
+    if (slugKeys.length > 0 && !slugKeys.includes(dashboardTab)) return ALL_DASHBOARD;
+    return dashboardTab;
+  }, [dashboardTab, slugKeys]);
 
-  useEffect(() => {
-    if (!dashData || ips.length === 0) return;
+  const assignDraftFromServer = useMemo(() => {
+    if (!dashData || ips.length === 0) return {} as Record<string, string>;
     const inv: Record<string, string> = {};
     for (const ip of ips) inv[ip] = '';
     for (const [slug, list] of Object.entries(dashData.dashboards)) {
@@ -83,14 +83,25 @@ export function Dashboard() {
         if (ips.includes(ip)) inv[ip] = slug;
       }
     }
-    setAssignDraft(inv);
-    setExtraDashboardSlugs([]);
+    return inv;
   }, [dashData, ips]);
 
+  const assignDraftSourceKey = useMemo(
+    () => (dashData ? `${ips.join(',')}:${JSON.stringify(dashData.dashboards)}` : ''),
+    [dashData, ips],
+  );
+
+  const [assignDraftSource, setAssignDraftSource] = useState(assignDraftSourceKey);
+  if (assignDraftSourceKey !== assignDraftSource) {
+    setAssignDraftSource(assignDraftSourceKey);
+    setAssignDraft(assignDraftFromServer);
+    setExtraDashboardSlugs([]);
+  }
+
   const scopedIps = useMemo(() => {
-    if (dashboardTab === ALL_DASHBOARD) return ips;
-    return dashData?.dashboards[dashboardTab] ?? [];
-  }, [dashboardTab, ips, dashData]);
+    if (activeDashboardTab === ALL_DASHBOARD) return ips;
+    return dashData?.dashboards[activeDashboardTab] ?? [];
+  }, [activeDashboardTab, ips, dashData]);
 
   /** Always load the full fleet snapshot so assignment rows can show every robot's name from health. */
   const fleetHasRobots = ips.length > 0;
@@ -457,9 +468,9 @@ export function Dashboard() {
               <button
                 type="button"
                 onClick={() => setDashboardTab(ALL_DASHBOARD)}
-                aria-pressed={dashboardTab === ALL_DASHBOARD}
+                aria-pressed={activeDashboardTab === ALL_DASHBOARD}
                 className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
-                  dashboardTab === ALL_DASHBOARD
+                  activeDashboardTab === ALL_DASHBOARD
                     ? 'border-accent bg-accent/12 text-accent shadow-sm'
                     : 'border-border bg-card text-muted-foreground hover:border-accent/35 hover:text-foreground'
                 }`}
@@ -469,7 +480,7 @@ export function Dashboard() {
               </button>
               {slugKeys.map((slug) => {
                 const n = dashData?.dashboards[slug]?.length ?? 0;
-                const selected = dashboardTab === slug;
+                const selected = activeDashboardTab === slug;
                 return (
                   <button
                     key={slug}
@@ -495,7 +506,7 @@ export function Dashboard() {
               Fleet refresh failed (showing last known data): {fleetQueryError}
             </p>
           )}
-          {dashboardTab !== ALL_DASHBOARD && scopedIps.length === 0 ? (
+          {activeDashboardTab !== ALL_DASHBOARD && scopedIps.length === 0 ? (
             <p className="rounded-lg border border-border bg-card px-6 py-8 text-center text-muted-foreground">
               No robots in this dashboard yet. Assign IPs above and click Save assignments.
             </p>
@@ -508,7 +519,7 @@ export function Dashboard() {
               No robots match this filter. Choose another status or clear the filter.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {filteredIps.map((ip) => {
                 const row = snap?.robots[ip];
                 const perIpError = snap?.errors[ip];
