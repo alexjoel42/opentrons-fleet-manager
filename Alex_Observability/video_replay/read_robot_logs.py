@@ -8,433 +8,13 @@ import csv
 import subprocess
 from datetime import datetime
 import os
-from typing import List, Dict, Any, Tuple, Set, Optional
+from typing import List, Dict, Any, Tuple, Optional
 import time as t
 import json
 import requests
 from pathlib import Path
 import zipfile
 import websocket  # type: ignore[import-untyped,import-not-found]
-
-
-def check_http_available(ip: str, timeout: int = 10) -> bool:
-    """Return True if the robot's HTTP server responds to /health."""
-    try:
-        resp = requests.get(
-            f"http://{ip}:31950/health",
-            headers={"opentrons-version": "*"},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        return True
-    except requests.exceptions.RequestException:
-        return False
-
-
-def check_ssh_available(ip: str, storage_directory: str, timeout: int = 15) -> bool:
-    """Return True if SSH authenticates."""
-    key_path = Path(storage_directory) / "robot_key"
-    try:
-        result = subprocess.run(
-            [
-                "ssh",
-                "-i",
-                str(key_path),
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=10",
-                f"root@{ip}",
-                "echo ok",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return result.returncode == 0
-    except (subprocess.SubprocessError, OSError):
-        return False
-
-
-def lpc_data(
-    file_results: Dict[str, Any],
-    protocol_info: Dict[str, Any],
-    runs_and_lpc: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Get labware offsets from one run log."""
-    offsets = file_results.get("labwareOffsets", "")
-    # TODO: per UNIQUE slot AND LABWARE TYPE only keep the most recent LPC recording
-    unique_offsets: Dict[Any, Any] = {}
-    headers_lpc = []
-    if len(offsets) > 0:
-        for offset in offsets:
-            labware_type = offset.get("definitionUri", "")
-            slot = offset["location"].get("slotName", "")
-            module_location = offset["location"].get("moduleModel", "")
-            adapter = offset["location"].get("definitionUri", "")
-            x_offset = offset["vector"].get("x", 0.0)
-            y_offset = offset["vector"].get("y", 0.0)
-            z_offset = offset["vector"].get("z", 0.0)
-            created_at = offset.get("createdAt", "")
-            if (
-                slot,
-                labware_type,
-            ) not in unique_offsets or created_at > unique_offsets[
-                (slot, labware_type)
-            ][
-                "createdAt"
-            ]:
-                unique_offsets[(slot, labware_type)] = {
-                    **protocol_info,
-                    "createdAt": created_at,
-                    "Labware Type": labware_type,
-                    "Slot": slot,
-                    "Module": module_location,
-                    "Adapter": adapter,
-                    "X": x_offset,
-                    "Y": y_offset,
-                    "Z": z_offset,
-                }
-        for item in unique_offsets:
-            runs_and_lpc.append(unique_offsets[item].values())
-        headers_lpc = list(unique_offsets[(slot, labware_type)].keys())
-    return runs_and_lpc, headers_lpc
-
-
-def command_time(command: Dict[str, str]) -> float:
-    """Calculate total create and complete time per command."""
-    try:
-        start_time = datetime.strptime(
-            command.get("startedAt", ""), "%Y-%m-%dT%H:%M:%S.%f%z"
-        )
-        complete_time = datetime.strptime(
-            command.get("completedAt", ""), "%Y-%m-%dT%H:%M:%S.%f%z"
-        )
-        start_to_complete = (complete_time - start_time).total_seconds()
-    except ValueError:
-        start_to_complete = 0
-    return start_to_complete
-
-
-def count_command_in_run_data(
-    commands: List[Dict[str, Any]],
-    command_of_interest: str,
-    find_avg_time: bool,
-    module_id: Optional[str] = None,
-) -> Tuple[int, float]:
-    """Count number of times command occurs in a run."""
-    total_command = 0
-    total_time = 0.0
-    module_id_num = None
-    for command in commands:
-        command_type = command["commandType"]
-        if module_id:
-            module_id_num = command["params"].get("moduleId")
-        if command_type == command_of_interest and module_id_num == module_id:
-            total_command += 1
-            if find_avg_time:
-                started_at = command.get("startedAt", "")
-                completed_at = command.get("completedAt", "")
-
-                if started_at and completed_at:
-                    try:
-                        start_time = datetime.strptime(
-                            started_at, "%Y-%m-%dT%H:%M:%S.%f%z"
-                        )
-                        end_time = datetime.strptime(
-                            completed_at, "%Y-%m-%dT%H:%M:%S.%f%z"
-                        )
-                        total_time += (end_time - start_time).total_seconds()
-                    except ValueError:
-                        # Handle case where date parsing fails
-                        pass
-    avg_time = total_time / total_command if total_command > 0 else 0.0
-    return total_command, avg_time
-
-
-def count_image_capture(file: Dict[str, Any]) -> Dict[str, float]:
-    """Count image captures per protocol."""
-    commands = file.get("commands", "")
-    num_of_images, image_capture_time = count_command_in_run_data(
-        commands, "captureImage", True
-    )
-    return {
-        "Total Image Captures": num_of_images,
-        "Average Image Capture Time (sec)": image_capture_time,
-    }
-
-
-def identify_labware_ids(
-    file_results: Dict[str, Any], labware_name: Optional[str]
-) -> List[str]:
-    """Determine what type of labware is being picked up."""
-    list_of_labware_ids: List[str] = []
-    if labware_name:
-        labwares = file_results.get("labware", "")
-        list_of_labware_ids = []
-        if len(labwares) > 1:
-            for labware in labwares:
-                load_name = labware["loadName"]
-                if load_name == labware_name:
-                    labware_id = labware["id"]
-                    list_of_labware_ids.append(labware_id)
-    return list_of_labware_ids
-
-
-def match_pipette_to_action(
-    command_dict: Dict[str, Any],
-    commandTypes: List[str],
-    right_pipette: Optional[str],
-    left_pipette: Optional[str],
-) -> Tuple[int, int]:
-    """Match pipette id to id in command."""
-    right_pipette_add = 0
-    left_pipette_add = 0
-    for command in commandTypes:
-        command_type = command_dict["commandType"]
-        command_params = command_dict.get("params", "")
-        command_pipette = command_params.get("pipetteId", "")
-        if command_type == command and command_pipette == right_pipette:
-            right_pipette_add = 1
-        elif command_type == command and command_pipette == left_pipette:
-            left_pipette_add = 1
-    return left_pipette_add, right_pipette_add
-
-
-def instrument_commands(
-    file_results: Dict[str, Any], labware_name: Optional[str]
-) -> Dict[str, float]:
-    """Count number of pipette and gripper commands per run."""
-    pipettes = file_results.get("pipettes", "")
-    commandData = file_results.get("commands", "")
-    left_tip_pick_up = 0.0
-    left_aspirate = 0.0
-    right_tip_pick_up = 0.0
-    right_aspirate = 0.0
-    left_dispense = 0.0
-    right_dispense = 0.0
-    right_pipette_id = ""
-    left_pipette_id = ""
-    gripper_pickups = 0.0
-    gripper_labware_of_interest = 0.0
-    avg_liquid_probe_time_sec = 0.0
-    list_of_labware_ids = identify_labware_ids(file_results, labware_name)
-    # Match pipette mount to id
-    for pipette in pipettes:
-        if pipette["mount"] == "right":
-            right_pipette_id = pipette["id"]
-        elif pipette["mount"] == "left":
-            left_pipette_id = pipette["id"]
-    for command in commandData:
-        # Count pick ups
-        single_left_pickup, single_right_pickup = match_pipette_to_action(
-            command, ["pickUpTip"], right_pipette_id, left_pipette_id
-        )
-        right_tip_pick_up += single_right_pickup
-        left_tip_pick_up += single_left_pickup
-        # Count aspirates
-        single_left_aspirate, single_right_aspirate = match_pipette_to_action(
-            command, ["aspirate"], right_pipette_id, left_pipette_id
-        )
-        right_aspirate += single_right_aspirate
-        left_aspirate += single_left_aspirate
-        # count dispenses/blowouts
-        single_left_dispense, single_right_dispense = match_pipette_to_action(
-            command, ["blowOut", "dispense"], right_pipette_id, left_pipette_id
-        )
-        right_dispense += single_right_dispense
-        left_dispense += single_left_dispense
-        # count gripper actions
-        commandType = command["commandType"]
-        if (
-            commandType == "moveLabware"
-            and command["params"]["strategy"] == "usingGripper"
-        ):
-            gripper_pickups += 1
-            labware_moving = command["params"]["labwareId"]
-            if labware_moving in list_of_labware_ids:
-                gripper_labware_of_interest += 1
-    liquid_probes, avg_liquid_probe_time_sec = count_command_in_run_data(
-        commandData, "liquidProbe", True
-    )
-    pipette_dict = {
-        "Left Pipette Total Tip Pick Up(s)": left_tip_pick_up,
-        "Left Pipette Total Aspirates": left_aspirate,
-        "Left Pipette Total Dispenses": left_dispense,
-        "Right Pipette Total Tip Pick Up(s)": right_tip_pick_up,
-        "Right Pipette Total Aspirates": right_aspirate,
-        "Right Pipette Total Dispenses": right_dispense,
-        "Gripper Pick Ups": gripper_pickups,
-        f"Gripper Pick Ups of {labware_name}": gripper_labware_of_interest,
-        "Total Liquid Probes": liquid_probes,
-        "Average Liquid Probe Time (sec)": avg_liquid_probe_time_sec,
-    }
-    return pipette_dict
-
-
-def get_comment_result_by_string(file_results: Dict[str, Any], key_phrase: str) -> str:
-    """Get comment string based off ky phrase."""
-    commandData = file_results.get("commands", "")
-    result_str = command_str = ""
-    for command in commandData:
-        commandType = command["commandType"]
-        if commandType == "comment":
-            command_str = command["params"].get("message", "")
-        try:
-            result_str = command_str.split(key_phrase)[1]
-        except IndexError:
-            continue
-    return result_str
-
-
-def get_protocol_version_number(file_results: Dict[str, Any]) -> str:
-    """Get protocol version number."""
-    return get_comment_result_by_string(file_results, "Protocol Version: ")
-
-
-def get_liquid_waste_height(file_results: Dict[str, Any]) -> float:
-    """Find liquid waste height."""
-    result_str = get_comment_result_by_string(
-        file_results, "Liquid Waste Total Height: "
-    )
-    try:
-        height = float(result_str)
-    except ValueError:
-        height = 0.0
-    return height
-
-
-def liquid_height_commands(
-    file_results: Dict[str, Any], all_heights_list: List[List[Any]]
-) -> List[List[Any]]:
-    """Record found liquid heights during a protocol."""
-    commandData = file_results.get("commands", "")
-    robot = file_results.get("robot_name", "")
-    run_id = file_results.get("run_id", "")
-    list_of_heights = []
-    print(robot)
-    liquid_waste_height = 0.0
-    for command in commandData:
-        commandType = command["commandType"]
-        if commandType == "comment":
-            result = command["params"].get("message", "")
-            try:
-                result_str = "'" + result.split("result: {")[1] + "'"
-                entries = result_str.split(", (")
-                comment_time = command["completedAt"]
-                for entry in entries:
-                    height = float(entry.split(": ")[1].split("'")[0].split("}")[0])
-                    labware_type = str(
-                        entry.split(",")[0].replace("'", "").replace("(", "")
-                    )
-                    well_location = str(entry.split(", ")[1].split(" ")[0])
-                    slot_location = str(entry.split("slot ")[1].split(")")[0])
-                    labware_name = str(entry.split("of ")[1].split(" on")[0])
-                    if labware_name == "Liquid Waste":
-                        liquid_waste_height += height
-                    one_entry = {
-                        "Timestamp": comment_time,
-                        "Labware Name": labware_name,
-                        "Labware Type": labware_type,
-                        "Slot Location": slot_location,
-                        "Well Location": well_location,
-                        "All Heights (mm)": height,
-                    }
-                    list_of_heights.append(one_entry)
-            except (IndexError, ValueError):
-                continue
-    if len(list_of_heights) > 0:
-        all_heights_list[0].append(robot)
-        all_heights_list[1].append(run_id)
-        all_heights_list[2].append(list_of_heights)
-        all_heights_list[3].append(liquid_waste_height)
-    return all_heights_list
-
-def create_abr_data_sheet(
-    storage_directory: Path, file_name: str, headers: List[str]
-) -> str:
-    """Creates csv file to log ABR data."""
-    file_name_csv = file_name + ".csv"
-    sheet_location = os.path.join(storage_directory, file_name_csv)
-    if os.path.exists(sheet_location):
-        return sheet_location
-    else:
-        with open(sheet_location, "w") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=headers)
-            writer.writeheader()
-            print(f"Created file. Located: {sheet_location}.")
-    return sheet_location
-
-
-def write_to_local_and_google_sheet(
-    runs_and_robots: Dict[Any, Dict[str, Any]],
-    storage_directory: Path,
-    file_name: str,
-    google_sheet: Any,
-    header: List[str],
-) -> None:
-    """Write data dictionary to google sheet and local csv."""
-    sheet_location = os.path.join(storage_directory, file_name)
-    file_exists = os.path.exists(sheet_location) and os.path.getsize(sheet_location) > 0
-    with open(sheet_location, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(header)
-        for run in runs_and_robots:
-            row = runs_and_robots[run].values()
-            row_list = list(row)
-            writer.writerow(row_list)
-            google_sheet.write_header(header)
-            google_sheet.token_check()
-            google_sheet.update_row_index()
-            google_sheet.write_to_row(row_list)
-            t.sleep(3)
-
-
-def read_abr_data_sheet(
-    storage_directory: Path, file_name_csv: str, google_sheet: Any
-) -> Set[str]:
-    """Reads current run sheet to determine what new run data should be added."""
-    print(file_name_csv)
-    sheet_location = os.path.join(storage_directory, file_name_csv)
-    runs_in_sheet = set()
-    # Read the CSV file
-    with open(sheet_location, "r") as csv_start:
-        data = csv.DictReader(csv_start)
-        headers = data.fieldnames
-        if headers is not None:
-            for row in data:
-                run_id = row[headers[1]]
-                runs_in_sheet.add(run_id)
-        print(f"There are {str(len(runs_in_sheet))} runs documented in the ABR sheet.")
-    # Read Google Sheet
-    google_sheet.token_check()
-    google_sheet.write_header(headers)
-    google_sheet.update_row_index()
-    return runs_in_sheet
-
-
-def get_run_ids_from_storage(storage_directory: Path) -> Set[str]:
-    """Read all files in storage directory, extracts run id, adds to set."""
-    os.makedirs(storage_directory, exist_ok=True)
-    list_of_files = os.listdir(storage_directory)
-    run_ids = set()
-    for this_file in list_of_files:
-        read_file = os.path.join(storage_directory, this_file)
-        if read_file.endswith(".json"):
-            file_results = json.load(open(read_file))
-        run_id = file_results.get("run_id", "")
-        if len(run_id) > 0:
-            run_ids.add(run_id)
-    return run_ids
-
-
-def get_unseen_run_ids(runs: Set[str], runs_from_storage: Set[str]) -> Set[str]:
-    """Subtracts runs from storage from current runs being read."""
-    runs_to_save = runs - runs_from_storage
-    return runs_to_save
 
 
 def save_run_log_to_json(
@@ -446,33 +26,6 @@ def save_run_log_to_json(
     with open(saved_file_path, mode="w") as f:
         json.dump(results, f, indent=2)
     return saved_file_path
-
-
-def get_run_ids_from_google_drive(google_drive: Any) -> Set[str]:
-    """Get run ids in google drive folder."""
-    # Run ids in google_drive_folder
-    file_names = google_drive.list_folder()
-    run_ids_on_gd = set()
-    for file in file_names:
-        if file.endswith(".json") and "_" in file:
-            file_id = file.split(".json")[0].split("_")[1]
-            run_ids_on_gd.add(file_id)
-    return run_ids_on_gd
-
-
-def write_to_sheets(
-    sheet_location: str, google_sheet: Any, row_list: List[Any], headers: List[str]
-) -> None:
-    """Write list to google sheet and csv."""
-    with open(sheet_location, "a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(row_list)
-        # Read Google Sheet
-        google_sheet.token_check()
-        google_sheet.write_header(headers)
-        google_sheet.update_row_index()
-        google_sheet.write_to_row(row_list)
-        t.sleep(5)
 
 
 def get_calibration_offsets(
@@ -492,7 +45,7 @@ def get_calibration_offsets(
             timeout=10,
         )
         response.raise_for_status()
-        print(f"Connected to {ip}")
+        #print(f"Connected to {ip}")
         health_data = response.json()
     except requests.exceptions.RequestException as e:
         print(f"Failed to fetch calibration data (HTTP unavailable): {e}")
@@ -710,7 +263,7 @@ def get_logs(storage_directory: Path, ip: str) -> str:
             run_log_path = save_run_log_to_json(ip, run_results, storage_directory)
             if run_log_path:
                 collected_files.append(run_log_path)
-                print(f"Run log saved: {run_log_path}")
+                #print(f"Run log saved: {run_log_path}")
     except Exception as e:
         print(f"Failed to fetch run log: {e}")
 
@@ -731,6 +284,8 @@ def get_logs(storage_directory: Path, ip: str) -> str:
             os.remove(file_path)
         except Exception as e:
             print(f"Failed to delete {file_path}: {e}")
+    
+    print(f"Sucessfully collected {robot_name}'s logs")
 
     return zip_filename
 
@@ -762,7 +317,7 @@ def fetch_weston_log(
             text=True,
             timeout=30,
         )
-        destination_path.write_text(result.stdout)
+        destination_path.write_text(result.stdout, encoding="utf-8")
         collected_files.append(str(destination_path))
     except subprocess.CalledProcessError as e:
         print(f"Failed to fetch weston log for {robot_name}: {e}")
@@ -872,7 +427,7 @@ def retreive_odd_console(
             )
             writer.writerow([ts, level, text])
 
-    print(f"\nSaved {len(entries)} entries to {output_csv}")
+    #print(f"\nSaved {len(entries)} entries to {output_csv}")
     collected_files.append(str(output_csv))
 
     return collected_files

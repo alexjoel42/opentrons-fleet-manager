@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-import read_robot_logs
+from read_robot_logs import get_logs
 
 import requests
 
@@ -229,7 +229,7 @@ def _format_message(robot_name: str, meta: dict) -> str:
             f":rocket: Protocol: {protocol} has started.\n"
         )
     if reason == "error_recovery_instant":
-        return(f":distorted_face: *{robot_name}* is in error recovery mode\n")
+        return(f":eyes: *{robot_name}* is in error recovery mode :eyes:\n")
     
     if reason == "run_finished":
         return(f":tada: Protocol {protocol} has finished :tada:")
@@ -328,7 +328,7 @@ class SlackNotifier:
                 channel=self.channel,
                 text=text,
                 username=self.username,
-                icon_emoji=":eyes:",
+                icon_emoji=":movie_camera:",
             )
             thread_ts = parent["ts"]
         except Exception as exc:  # noqa: BLE001
@@ -604,7 +604,7 @@ def fetch_robot_logs(ip: str, storage_dir: str, dest_dir: str | None = None) -> 
     blocks the clip/notification.
     """
     try:
-        zip_path = read_robot_logs.get_logs(Path(storage_dir), ip)
+        zip_path = get_logs(Path(storage_dir), ip)
         if zip_path and dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
             moved = os.path.join(dest_dir, os.path.basename(zip_path))
@@ -889,7 +889,6 @@ class RobotWatcher(threading.Thread):
 
         # Run already ended (terminal) -> stop touching it.
         if self.run_state.finished:
-            print(f"sup {self.robot.name}")
             return
 
         if status in TERMINAL_STATUSES:
@@ -948,8 +947,6 @@ class RobotWatcher(threading.Thread):
                 self.run_state.in_recovery = False
             self._maybe_trigger(run)
 
-        self._first_poll_done = True
-
     def _ensure_recording(self) -> None:
         """Keep the recorder running, backing off when the stream is unavailable.
 
@@ -1007,6 +1004,8 @@ class RobotWatcher(threading.Thread):
                     log.info("[%s] reachable again", self.robot.name)
                     self.reachable = True
                 self._handle_run(run)
+                if not self._first_poll_done:
+                    self._first_poll_done = True
                 backoff = self.cfg.poll_interval_seconds
             except requests.RequestException as exc:
                 # Log once on the reachable->unreachable transition, then back off.
