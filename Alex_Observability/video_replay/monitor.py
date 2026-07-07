@@ -45,10 +45,6 @@ except ImportError:  # pragma: no cover
 
 log = logging.getLogger("monitor")
 
-# Hard-coded path to abr-testing's read_robot_logs.py. Used to pull a .zip of the
-# robot's logs when an error clip is saved. (TODO: make configurable once this
-# moves into the abr-testing package.)
-
 # Run statuses that mean a run exists and is executing (so we should record).
 ACTIVE_STATUSES = {
     "running",
@@ -837,8 +833,6 @@ class RobotWatcher(threading.Thread):
         run_id = run.get("id", "")
         status = run.get("status", "")
         
-        # REMOVED: self.run_state.finished = False
-
         # New run started (or replaced the previous one).
         is_new_run = (self.run_state is None or self.run_state.run_id != run_id)
         if status != "idle" and is_new_run:
