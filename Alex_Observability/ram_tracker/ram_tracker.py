@@ -10,6 +10,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
+# Repo root: .../opentrons-fleet-manager. Output is a sibling folder on Desktop (etc.).
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+MEMORY_RESULTS_DIR = REPO_ROOT.parent / "memory results"
+
+
+def ensure_memory_results_dir() -> Path:
+    """Create the output folder (sibling to opentrons-fleet-manager) if needed."""
+    MEMORY_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    return MEMORY_RESULTS_DIR
+
 
 @dataclass
 class memoryInfo:
@@ -123,8 +133,8 @@ done
     return parse_process_output(result.stdout)
 
 
-def init_json(ip_address: str) -> str:
-    """initialize a JSON and return the name"""
+def init_json(ip_address: str, output_dir: Path) -> Path:
+    """Initialize a JSONL file in output_dir and return its path."""
     try:
         health = requests.get(
             f"http://{ip_address}:31950/health",
@@ -135,12 +145,12 @@ def init_json(ip_address: str) -> str:
     except Exception:
         robot_name = ip_address
 
-    json_path = f"{robot_name}_memory.jsonl"
-    with open(json_path, "w") as json_file:
-        pass
+    json_path = output_dir / f"{robot_name}_memory.jsonl"
+    json_path.touch()
     return json_path
 
-def make_plot(json_path: str) -> None:
+
+def make_plot(json_path: Path) -> None:
     memory_rows = read_memory_use(json_path)
     if not memory_rows:
         print(f"No memory data found in {json_path}")
@@ -158,12 +168,13 @@ def make_plot(json_path: str) -> None:
     fig.autofmt_xdate()
     fig.tight_layout()
 
-    plot_path = Path(json_path).with_suffix(".png")
+    plot_path = json_path.with_suffix(".png")
     fig.savefig(plot_path)
     plt.show()
-    
+    print(f"Saved plot to {plot_path}", flush=True)
 
-def read_memory_use(json_path: str) -> list[tuple[str, float]]:
+
+def read_memory_use(json_path: Path) -> list[tuple[str, float]]:
     rows = []
     with open(json_path) as json_file:
         for line in json_file:
@@ -202,9 +213,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    output_dir = ensure_memory_results_dir()
+    print(f"Writing results to {output_dir}", flush=True)
+
     ip_address = args.ip_address or input("Enter Robot IP: ")
     available_history = deque(maxlen=12)
-    json_path = init_json(ip_address)
+    json_path = init_json(ip_address, output_dir)
     try:
         for memory_sample in stream_system_memory(ip_address, args.interval_seconds):
             available_history.append(memory_sample.available)
@@ -233,7 +247,7 @@ if __name__ == "__main__":
 
             baseline = sum(available_history) / len(available_history)
             drop_from_baseline = baseline - memory_sample.available
-            if available_pct < 28.0:
+            if available_pct < 10.0:
                 top_memory_processes = find_processes(ip_address)
                 maintenance["events"].append(
                     {
@@ -264,14 +278,9 @@ if __name__ == "__main__":
                     }
                 )
 
+            print(json.dumps(json_msg), flush=True)
             with open(json_path, "a") as json_file:
                 json_file.write(json.dumps(json_msg) + "\n")
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Creating memory plot...", flush=True)
         make_plot(json_path)
-
-'''
-1. Profile continuously 
-cursor write me a plotted graph based on the json dump that I've given you thanks fam
-
-'''

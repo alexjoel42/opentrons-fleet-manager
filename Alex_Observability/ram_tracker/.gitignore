@@ -45,6 +45,4 @@ env/
 .idea/
 *.swp
 
-# Project output (ram_tracker writes these to cwd)
-*_memory.jsonl
-*_memory.png
+# Project output (written to ../memory results/ beside opentrons-fleet-manager)
