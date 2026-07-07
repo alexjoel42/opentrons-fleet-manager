@@ -18,10 +18,7 @@ setup:
 	@echo "Setup complete. Activate with: source $(VENV_BIN)/activate"
 
 # --- Lint (Ruff default rules — same as Observability_V0 lint-py) ---
-lint: lint-py
-	@echo "Lint passed."
-
-lint-py:
+lint:
 	@if [ -d $(VENV) ] && $(VENV_BIN)/python -c "import ruff" 2>/dev/null; then \
 		echo "Lint (Python)..."; \
 		$(VENV_BIN)/ruff check $(PY_SRC) 2>/dev/null || true; \
