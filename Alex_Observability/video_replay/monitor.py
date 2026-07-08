@@ -33,7 +33,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-import read_robot_logs
+from read_robot_logs import get_logs
 
 import requests
 
@@ -44,10 +44,6 @@ except ImportError:  # pragma: no cover
 
 
 log = logging.getLogger("monitor")
-
-# Hard-coded path to abr-testing's read_robot_logs.py. Used to pull a .zip of the
-# robot's logs when an error clip is saved. (TODO: make configurable once this
-# moves into the abr-testing package.)
 
 # Run statuses that mean a run exists and is executing (so we should record).
 ACTIVE_STATUSES = {
@@ -229,7 +225,7 @@ def _format_message(robot_name: str, meta: dict) -> str:
             f":rocket: Protocol: {protocol} has started.\n"
         )
     if reason == "error_recovery_instant":
-        return(f":distorted_face: *{robot_name}* is in error recovery mode\n")
+        return(f":eyes: *{robot_name}* is in error recovery mode :eyes:\n")
     
     if reason == "run_finished":
         return(f":tada: Protocol {protocol} has finished :tada:")
@@ -328,7 +324,7 @@ class SlackNotifier:
                 channel=self.channel,
                 text=text,
                 username=self.username,
-                icon_emoji=":eyes:",
+                icon_emoji=":movie_camera:",
             )
             thread_ts = parent["ts"]
         except Exception as exc:  # noqa: BLE001
@@ -604,7 +600,7 @@ def fetch_robot_logs(ip: str, storage_dir: str, dest_dir: str | None = None) -> 
     blocks the clip/notification.
     """
     try:
-        zip_path = read_robot_logs.get_logs(Path(storage_dir), ip)
+        zip_path = get_logs(Path(storage_dir), ip)
         if zip_path and dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
             moved = os.path.join(dest_dir, os.path.basename(zip_path))
@@ -630,37 +626,18 @@ class RunState:
     finished: bool = False  # clip captured OR run ended; stop recording it
 
 # --------------------------------------------------------------------------- #
-# Robot watcher
+# Robot HTTP client
 # --------------------------------------------------------------------------- #
-class RobotWatcher(threading.Thread):
-    def __init__(self, robot: RobotConfig, cfg: Config, stop_event: threading.Event, notifier=None):
-        super().__init__(name=f"watch-{robot.name}", daemon=True)
-        self.robot = robot
-        self.cfg = cfg
-        self.stop_event = stop_event
-        self.notifier = notifier
-        self.recorder = Recorder(robot, cfg.work_dir, cfg.clip)
-        self.session = requests.Session()
-        self.session.headers.update({"Opentrons-Version": cfg.opentrons_version})
-        self.run_state: RunState | None = None
-        self.base_url = f"http://{robot.ip}:31950"
-        self.reachable = True  # for logging unreachable->reachable transitions only
-        # While a run is awaiting recovery we don't collect live video; recording
-        # resumes once the run resumes. This gates the poll-loop restart guard.
-        self._recording_paused = False
-        # Recorder/stream health, used to back off when ffmpeg can't attach to a
-        # robot's HLS stream (e.g. camera off / not streaming) instead of
-        # respawning it every poll.
-        self.stream_ok = True
-        self._recorder_fails = 0
-        self._recorder_start_ts = 0.0
-        self._recorder_counted = True  # no in-flight start attempt yet
-        self._recorder_retry_at = 0.0
-        self._started_at = time.time()
-        self._first_poll_done = False
+class RobotClient:
+    """Thin wrapper around the robot HTTP API (port 31950)."""
 
-    # --- HTTP helpers ----------------------------------------------------- #
-    def _get_current_run(self) -> dict | None:
+    def __init__(self, robot: RobotConfig, opentrons_version: str) -> None:
+        self.robot = robot
+        self.base_url = f"http://{robot.ip}:31950"
+        self.session = requests.Session()
+        self.session.headers.update({"Opentrons-Version": opentrons_version})
+
+    def get_current_run(self) -> dict | None:
         resp = self.session.get(f"{self.base_url}/runs", timeout=8)
         resp.raise_for_status()
         data = resp.json().get("data", []) or []
@@ -668,116 +645,94 @@ class RobotWatcher(threading.Thread):
             if run.get("current"):
                 return run
         return None
-    
-    def _get_protocol_name(self, protocol_id: str | None) -> str:
+
+    def get_protocol_name(self, protocol_id: str | None) -> str:
         if not protocol_id:
             return "Unknown / No Protocol"
         try:
-            resp = self.session.get(f"{self.base_url}/protocols/{protocol_id}", timeout=5)
+            resp = self.session.get(
+                f"{self.base_url}/protocols/{protocol_id}", timeout=5
+            )
             resp.raise_for_status()
             data = resp.json().get("data", {})
-            
-            # Try to grab the name from metadata
+
             metadata = data.get("metadata", {})
             name = metadata.get("protocolName") or metadata.get("protocol-name")
-            
-            # Fallback to the uploaded filename if metadata name is empty
+
             if not name:
                 files = data.get("files", [])
                 if files:
                     name = files[0].get("name")
-                    
+
             return name or protocol_id
         except Exception as exc:
-            log.warning("[%s] failed to fetch protocol name for %s: %s", self.robot.name, protocol_id, exc)
+            log.warning(
+                "[%s] failed to fetch protocol name for %s: %s",
+                self.robot.name,
+                protocol_id,
+                exc,
+            )
             return protocol_id
 
-    # --- trigger evaluation ----------------------------------------------- #
-    def _maybe_trigger(self, run: dict) -> None:
-        state = self.run_state
-        if state is None or state.finished:
-            return
+    def event_meta(
+        self,
+        run: dict,
+        reason: str,
+        *,
+        protocol_name: str | None = None,
+        detail: str | None = None,
+        clip_path: str | None = None,
+    ) -> dict:
+        if protocol_name is None:
+            protocol_name = self.get_protocol_name(run.get("protocolId"))
+        return {
+            "robot": self.robot.name,
+            "robot_ip": self.robot.ip,
+            "run_id": run.get("id", "unknown"),
+            "reason": reason,
+            "status": run.get("status"),
+            "protocol_name": protocol_name,
+            "error_detail": detail,
+            "clip_path": clip_path,
+        }
 
-        status = run.get("status", "")
-        errors = run.get("errors") or []
-        now = time.time()
 
-        # Respect cooldown so one incident doesn't produce many clips.
-        if now - state.last_clip_ts < self.cfg.clip.cooldown_seconds:
-            return
+# --------------------------------------------------------------------------- #
+# Incident handling (clip + logs + notify)
+# --------------------------------------------------------------------------- #
+class IncidentHandler:
+    """Extract clips and notify when a run incident occurs."""
 
-        reason = None
-        detail = None
+    def __init__(
+        self,
+        robot: RobotConfig,
+        cfg: Config,
+        recorder: Recorder,
+        notifier,
+        stop_event: threading.Event,
+    ) -> None:
+        self.robot = robot
+        self.cfg = cfg
+        self.recorder = recorder
+        self.notifier = notifier
+        self.stop_event = stop_event
 
-        if self.cfg.triggers.on_command_error:
-            new_errors = [e for e in errors if e.get("id") not in state.reported_error_ids]
-            if new_errors:
-                reason = "command_error"
-                detail = new_errors[0].get("detail") or new_errors[0].get("errorType")
-
-        if reason is None and self.cfg.triggers.on_error_recovery:
-            # Detect recovery from the *live* status only. hasEverEnteredErrorRecovery
-            # latches True for the rest of the run, so it can't distinguish a second
-            # recovery from the first; the awaiting-recovery status does. recovery_reported
-            # is re-armed in _handle_run when the run leaves recovery.
-            in_recovery = status in ERROR_STATUSES
-            if in_recovery and not state.recovery_reported:
-                reason = "error_recovery"
-
-        if reason is None and self.cfg.triggers.on_failed:
-            # Skip if we already reported command_error or error_recovery for this
-            # failure cascade -- the run_failed transition is the same incident.
-            if status == "failed" and not state.failed_reported:
-                reason = "run_failed"
-                if errors:
-                    detail = errors[0].get("detail") or errors[0].get("errorType")
-
-        if reason is None:
-            return
-        
-        if reason == "error_recovery" and self.notifier is not None:
-            protocol_id = run.get("protocolId")
-            protocol_name = self._get_protocol_name(protocol_id)
-            
-            instant_meta = {
-                "robot": self.robot.name,
-                "robot_ip": self.robot.ip,
-                "run_id": run.get("id", "unknown"),
-                "reason": "error_recovery_instant",
-                "status": status,
-                "protocol_name": protocol_name,
-                "error_detail": detail,
-                "clip_path": None,
-            }
-            self.notifier.notify(self.robot.name, instant_meta)
-
-        # Mark everything so we don't double-fire for this same incident.
-        state.reported_error_ids.update(e.get("id") for e in errors if e.get("id"))
-        
-        # --- MODIFIED: Use your new list ---
-        if status in ERROR_STATUSES:
-            state.recovery_reported = True
-            
-        state.failed_reported = True
-        state.last_clip_ts = now
-
-        self._save_and_notify(run, reason, detail)
-
-    def _save_and_notify(self, run: dict, reason: str, detail: str | None) -> None:
+    def save_and_notify(self, run: dict, reason: str, detail: str | None) -> None:
         run_id = run.get("id", "unknown")
-        log.info("[%s] %s on run %s (status=%s)%s", self.robot.name, reason,
-                 run_id[:8], run.get("status"),
-                 f": {detail}" if detail else "")
+        log.info(
+            "[%s] %s on run %s (status=%s)%s",
+            self.robot.name,
+            reason,
+            run_id[:8],
+            run.get("status"),
+            f": {detail}" if detail else "",
+        )
 
-        # Keep recording briefly so the clip includes the error + its aftermath,
-        # then stop the recorder (we don't need live video after the error).
         post = max(0, self.cfg.clip.post_error_seconds)
         if post:
             self.stop_event.wait(post)
         self.recorder.stop()
 
-        # Each incident gets its own folder under output_dir, holding the clip and
-        # the logs zip together for easy post-run navigation.
         incident = f"{self.robot.name}_{run_id[:8]}_{utcstamp()}"
         incident_dir = os.path.join(self.cfg.output_dir, incident)
         os.makedirs(incident_dir, exist_ok=True)
@@ -786,10 +741,6 @@ class RobotWatcher(threading.Thread):
             incident_dir, run_id, reason, drop_active=False, base_name=incident
         )
         self.recorder.cleanup()
-        # Note: we intentionally do NOT mark the run finished here. The recorder
-        # is restarted by the poll loop so a fresh buffer builds for the next
-        # incident, letting us capture multiple errors/recoveries in one run.
-        # (Terminal statuses still set finished in _handle_run.)
 
         meta = {
             "robot": self.robot.name,
@@ -803,15 +754,17 @@ class RobotWatcher(threading.Thread):
             "clip_path": os.path.abspath(clip_path) if clip_path else None,
         }
 
-        # Pull the robot's full logs (abr-testing get_logs). The SSH key + scratch
-        # live in output_dir; the finished zip is moved into the incident folder.
-        log_zip = fetch_robot_logs(self.robot.ip, self.cfg.output_dir, dest_dir=incident_dir)
+        log_zip = fetch_robot_logs(
+            self.robot.ip, self.cfg.output_dir, dest_dir=incident_dir
+        )
         if log_zip:
             meta["log_zip"] = log_zip
-            log.info("[%s] collected robot logs: %s",
-                     self.robot.name, os.path.basename(log_zip))
+            log.info(
+                "[%s] collected robot logs: %s",
+                self.robot.name,
+                os.path.basename(log_zip),
+            )
 
-        # If we captured nothing, don't leave an empty incident folder behind.
         try:
             if not os.listdir(incident_dir):
                 os.rmdir(incident_dir)
@@ -823,161 +776,114 @@ class RobotWatcher(threading.Thread):
         if self.notifier is not None:
             self.notifier.notify(self.robot.name, meta)
 
-    # --- main loop -------------------------------------------------------- #
-    def _handle_run(self, run: dict | None) -> None:
-        if run is None:
-            # No current run. Tear down any recording/state.
-            if self.run_state is not None:
-                log.debug("[%s] run ended/cleared", self.robot.name)
-                self.recorder.stop()
-                self.recorder.cleanup()
-                self.run_state = None
+
+# --------------------------------------------------------------------------- #
+# Trigger evaluation
+# --------------------------------------------------------------------------- #
+class TriggerEvaluator:
+    """Decide when a run error warrants a clip and notification."""
+
+    def __init__(
+        self,
+        cfg: Config,
+        client: RobotClient,
+        incidents: IncidentHandler,
+        notifier,
+    ) -> None:
+        self.cfg = cfg
+        self.client = client
+        self.incidents = incidents
+        self.notifier = notifier
+
+    def evaluate(self, run: dict, state: RunState) -> None:
+        if state.finished:
             return
 
-        run_id = run.get("id", "")
         status = run.get("status", "")
-        
-        # REMOVED: self.run_state.finished = False
+        errors = run.get("errors") or []
+        now = time.time()
 
-        # New run started (or replaced the previous one).
-        is_new_run = (self.run_state is None or self.run_state.run_id != run_id)
-        if status != "idle" and is_new_run:
-            self.recorder.stop()
-            self.recorder.cleanup()
-            self._reset_recorder_health()
-            
-            # --- THE BATCH SAFEGUARD ---
-            # If the script just booted up (first poll), assume everything currently 
-            # happening is old news. If it's a normal live monitor, treat it as fresh.
-            is_startup = not getattr(self, "_first_poll_done", False)
-            
-            existing_errors = {e.get("id") for e in run.get("errors", []) if e.get("id")}
-            is_recovering = status in ERROR_STATUSES
-            is_failed = status == "failed"
-            
-            self.run_state = RunState(
-                run_id=run_id,
-                # Seed the state so existing conditions aren't treated as "new" triggers
-                reported_error_ids=existing_errors if is_startup else set(),
-                recovery_reported=is_recovering if is_startup else False,
-                in_recovery=is_recovering,
-                failed_reported=is_failed if is_startup else False
-            ) 
-            
-            log.info("[%s] monitoring run %s (status=%s)", self.robot.name, run_id[:8], status)
-
-            # --- RUN START NOTIFICATION ---
-            # Only alert if this run genuinely just started while we were watching
-            if self.notifier is not None and not is_startup:
-                protocol_id = run.get("protocolId")
-                protocol_name = self._get_protocol_name(protocol_id)
-
-                start_meta = {
-                    "robot": self.robot.name,
-                    "robot_ip": self.robot.ip,
-                    "run_id": run_id,
-                    "reason": "run_started",
-                    "status": status,
-                    "protocol_name": protocol_name,
-                    "error_detail": None,
-                    "clip_path": None,
-                }
-                self.notifier.notify(self.robot.name, start_meta)
-        # SAFETY NET: If the run was idle and we skipped creating a RunState, stop here!
-        if self.run_state is None:
+        if now - state.last_clip_ts < self.cfg.clip.cooldown_seconds:
             return
 
-        # Run already ended (terminal) -> stop touching it.
-        if self.run_state.finished:
-            print(f"sup {self.robot.name}")
-            return
+        reason = None
+        detail = None
 
-        if status in TERMINAL_STATUSES:
-            # Evaluate one last time (a fail still has errors worth clipping)…
-            self._maybe_trigger(run)
+        if self.cfg.triggers.on_command_error:
+            new_errors = [
+                e for e in errors if e.get("id") not in state.reported_error_ids
+            ]
+            if new_errors:
+                reason = "command_error"
+                detail = new_errors[0].get("detail") or new_errors[0].get("errorType")
 
-            # --- RUN FINISHED NOTIFICATION ---
-            is_startup = not getattr(self, "_first_poll_done", False)
-            
-            # Only celebrate if it actually succeeded (not failed/stopped) and we didn't just boot up
-            if status == "succeeded" and self.notifier is not None and not is_startup:
-                protocol_id = run.get("protocolId")
-                protocol_name = self._get_protocol_name(protocol_id)
-
-                finish_meta = {
-                    "robot": self.robot.name,
-                    "robot_ip": self.robot.ip,
-                    "run_id": run_id,
-                    "reason": "run_finished",
-                    "status": status,
-                    "protocol_name": protocol_name,
-                    "error_detail": None,
-                    "clip_path": None,
-                }
-                self.notifier.notify(self.robot.name, finish_meta)
-                
-            # …then stop recording for this run and mark it done so the restart
-            # guard in run() doesn't keep re-spawning ffmpeg on a finished run.
-            self.recorder.stop()
-            self.recorder.cleanup()
-            self.run_state.finished = True
-            return
-
-        if status in ACTIVE_STATUSES:
+        if reason is None and self.cfg.triggers.on_error_recovery:
             in_recovery = status in ERROR_STATUSES
-            if in_recovery:
-                # Don't collect live video while awaiting recovery. On entry the
-                # recorder is still running so _maybe_trigger can grab the clip
-                # (including its short post-error tail); once that incident has
-                # been reported we keep the recorder stopped until the run resumes.
-                self._recording_paused = True
-                if self.run_state.recovery_reported:
-                    self.recorder.stop()
-                self.run_state.in_recovery = True
-            else:
-                # Running normally: record, and re-arm recovery detection so a
-                # *second* recovery on the same run captures again.
-                if self.run_state.in_recovery:
-                    # Left recovery for a fresh attempt; allow run_failed again.
-                    self.run_state.failed_reported = False
-                self._recording_paused = False
-                self._ensure_recording()
-                self.recorder.prune()
-                if self.run_state.recovery_reported:
-                    self.run_state.recovery_reported = False
-                self.run_state.in_recovery = False
-            self._maybe_trigger(run)
+            if in_recovery and not state.recovery_reported:
+                reason = "error_recovery"
 
-        self._first_poll_done = True
+        if reason is None and self.cfg.triggers.on_failed:
+            if status == "failed" and not state.failed_reported:
+                reason = "run_failed"
+                if errors:
+                    detail = errors[0].get("detail") or errors[0].get("errorType")
 
-    def _ensure_recording(self) -> None:
-        """Keep the recorder running, backing off when the stream is unavailable.
+        if reason is None:
+            return
 
-        If ffmpeg keeps exiting right after start (no HLS stream on the robot),
-        we stop respawning it every poll: after STREAM_DOWN_AFTER_FAILURES
-        consecutive failed starts we log once and only retry every
-        STREAM_RETRY_BACKOFF seconds.
-        """
+        if reason == "error_recovery" and self.notifier is not None:
+            instant_meta = self.client.event_meta(
+                run, "error_recovery_instant", detail=detail
+            )
+            self.notifier.notify(self.client.robot.name, instant_meta)
+
+        state.reported_error_ids.update(e.get("id") for e in errors if e.get("id"))
+
+        if status in ERROR_STATUSES:
+            state.recovery_reported = True
+
+        state.failed_reported = True
+        state.last_clip_ts = now
+
+        self.incidents.save_and_notify(run, reason, detail)
+
+
+# --------------------------------------------------------------------------- #
+# Recorder supervision (stream health + backoff)
+# --------------------------------------------------------------------------- #
+class RecorderSupervisor:
+    """Start/restart the recorder and track HLS stream health."""
+
+    def __init__(self, robot_name: str, recorder: Recorder) -> None:
+        self.robot_name = robot_name
+        self.recorder = recorder
+        self.stream_ok = True
+        self._recorder_fails = 0
+        self._recorder_start_ts = 0.0
+        self._recorder_counted = True
+        self._recorder_retry_at = 0.0
+
+    def ensure_recording(self) -> None:
         now = time.monotonic()
         if self.recorder.running:
-            # Only treat it as a genuine success once it has survived a few
-            # seconds (ffmpeg is briefly "alive" right after spawn even when the
-            # stream is down).
             if now - self._recorder_start_ts > 3.0:
                 if not self.stream_ok:
-                    log.info("[%s] video recording resumed", self.robot.name)
+                    log.info("[%s] video recording resumed", self.robot_name)
                     self.stream_ok = True
                 self._recorder_fails = 0
                 self._recorder_counted = True
             return
 
-        # Not running: the previous start attempt (if any) failed. Count it once.
         if not self._recorder_counted:
             self._recorder_fails += 1
             self._recorder_counted = True
             if self._recorder_fails == STREAM_DOWN_AFTER_FAILURES and self.stream_ok:
-                log.warning("[%s] video stream unavailable (ffmpeg keeps exiting); "
-                            "retrying every %.0fs", self.robot.name, STREAM_RETRY_BACKOFF)
+                log.warning(
+                    "[%s] video stream unavailable (ffmpeg keeps exiting); "
+                    "retrying every %.0fs",
+                    self.robot_name,
+                    STREAM_RETRY_BACKOFF,
+                )
                 self.stream_ok = False
 
         if now < self._recorder_retry_at:
@@ -987,29 +893,166 @@ class RobotWatcher(threading.Thread):
         self._recorder_start_ts = now
         self._recorder_counted = False
         self._recorder_retry_at = now + (
-            STREAM_RETRY_BACKOFF if self._recorder_fails >= STREAM_DOWN_AFTER_FAILURES else 0.0
+            STREAM_RETRY_BACKOFF
+            if self._recorder_fails >= STREAM_DOWN_AFTER_FAILURES
+            else 0.0
         )
 
-    def _reset_recorder_health(self) -> None:
-        """Clear stream-down backoff so a new run records immediately."""
+    def reset_health(self) -> None:
         self.stream_ok = True
         self._recorder_fails = 0
         self._recorder_start_ts = 0.0
         self._recorder_counted = True
         self._recorder_retry_at = 0.0
 
+
+# --------------------------------------------------------------------------- #
+# Run lifecycle
+# --------------------------------------------------------------------------- #
+class RunLifecycle:
+    """Track the current run and drive recording + trigger evaluation."""
+
+    def __init__(
+        self,
+        robot: RobotConfig,
+        client: RobotClient,
+        evaluator: TriggerEvaluator,
+        recorder: Recorder,
+        supervisor: RecorderSupervisor,
+        notifier,
+    ) -> None:
+        self.robot = robot
+        self.client = client
+        self.evaluator = evaluator
+        self.recorder = recorder
+        self.supervisor = supervisor
+        self.notifier = notifier
+        self.run_state: RunState | None = None
+        self.recording_paused = False
+
+    def handle_run(self, run: dict | None, *, first_poll_done: bool) -> None:
+        if run is None:
+            if self.run_state is not None:
+                log.debug("[%s] run ended/cleared", self.robot.name)
+                self.recorder.stop()
+                self.recorder.cleanup()
+                self.run_state = None
+            return
+
+        run_id = run.get("id", "")
+        status = run.get("status", "")
+
+        is_new_run = self.run_state is None or self.run_state.run_id != run_id
+        if status != "idle" and is_new_run:
+            self.recorder.stop()
+            self.recorder.cleanup()
+            self.supervisor.reset_health()
+
+            is_startup = not first_poll_done
+            existing_errors = {e.get("id") for e in run.get("errors", []) if e.get("id")}
+            is_recovering = status in ERROR_STATUSES
+            is_failed = status == "failed"
+
+            self.run_state = RunState(
+                run_id=run_id,
+                reported_error_ids=existing_errors if is_startup else set(),
+                recovery_reported=is_recovering if is_startup else False,
+                in_recovery=is_recovering,
+                failed_reported=is_failed if is_startup else False,
+            )
+
+            log.info(
+                "[%s] monitoring run %s (status=%s)",
+                self.robot.name,
+                run_id[:8],
+                status,
+            )
+
+            if self.notifier is not None and not is_startup:
+                start_meta = self.client.event_meta(run, "run_started")
+                self.notifier.notify(self.robot.name, start_meta)
+
+        if self.run_state is None:
+            return
+
+        if self.run_state.finished:
+            return
+
+        if status in TERMINAL_STATUSES:
+            self.evaluator.evaluate(run, self.run_state)
+
+            if status == "succeeded" and self.notifier is not None and first_poll_done:
+                finish_meta = self.client.event_meta(run, "run_finished")
+                self.notifier.notify(self.robot.name, finish_meta)
+
+            self.recorder.stop()
+            self.recorder.cleanup()
+            self.run_state.finished = True
+            return
+
+        if status in ACTIVE_STATUSES:
+            in_recovery = status in ERROR_STATUSES
+            if in_recovery:
+                self.recording_paused = True
+                if self.run_state.recovery_reported:
+                    self.recorder.stop()
+                self.run_state.in_recovery = True
+            else:
+                if self.run_state.in_recovery:
+                    self.run_state.failed_reported = False
+                self.recording_paused = False
+                self.supervisor.ensure_recording()
+                self.recorder.prune()
+                if self.run_state.recovery_reported:
+                    self.run_state.recovery_reported = False
+                self.run_state.in_recovery = False
+            self.evaluator.evaluate(run, self.run_state)
+
+
+# --------------------------------------------------------------------------- #
+# Robot watcher (poll loop)
+# --------------------------------------------------------------------------- #
+class RobotWatcher(threading.Thread):
+    """Poll one robot, record video, and react to run errors."""
+
+    def __init__(
+        self,
+        robot: RobotConfig,
+        cfg: Config,
+        stop_event: threading.Event,
+        notifier=None,
+    ) -> None:
+        super().__init__(name=f"watch-{robot.name}", daemon=True)
+        self.robot = robot
+        self.cfg = cfg
+        self.stop_event = stop_event
+        self.notifier = notifier
+
+        self.recorder = Recorder(robot, cfg.work_dir, cfg.clip)
+        self.client = RobotClient(robot, cfg.opentrons_version)
+        self.incidents = IncidentHandler(robot, cfg, self.recorder, notifier, stop_event)
+        self.evaluator = TriggerEvaluator(cfg, self.client, self.incidents, notifier)
+        self.supervisor = RecorderSupervisor(robot.name, self.recorder)
+        self.lifecycle = RunLifecycle(
+            robot, self.client, self.evaluator, self.recorder, self.supervisor, notifier
+        )
+
+        self.reachable = True
+        self._first_poll_done = False
+
     def run(self) -> None:
         backoff = self.cfg.poll_interval_seconds
         while not self.stop_event.is_set():
             try:
-                run = self._get_current_run()
+                run = self.client.get_current_run()
                 if not self.reachable:
                     log.info("[%s] reachable again", self.robot.name)
                     self.reachable = True
-                self._handle_run(run)
+                self.lifecycle.handle_run(run, first_poll_done=self._first_poll_done)
+                if not self._first_poll_done:
+                    self._first_poll_done = True
                 backoff = self.cfg.poll_interval_seconds
             except requests.RequestException as exc:
-                # Log once on the reachable->unreachable transition, then back off.
                 if self.reachable:
                     log.warning("[%s] unreachable: %s", self.robot.name, exc)
                     self.reachable = False
@@ -1018,14 +1061,14 @@ class RobotWatcher(threading.Thread):
                 log.exception("[%s] unexpected error", self.robot.name)
                 backoff = min(backoff * 1.5, 30.0)
 
-            # Keep a live run's recorder running even across transient errors,
-            # unless we've already captured this run's clip or the run is awaiting
-            # recovery (we don't collect live video then). _ensure_recording backs
-            # off on its own when the stream is unavailable.
-            if (self.run_state is not None and not self.run_state.finished
-                    and not self._recording_paused):
+            state = self.lifecycle.run_state
+            if (
+                state is not None
+                and not state.finished
+                and not self.lifecycle.recording_paused
+            ):
                 try:
-                    self._ensure_recording()
+                    self.supervisor.ensure_recording()
                 except Exception:  # noqa: BLE001
                     log.exception("[%s] recorder restart failed", self.robot.name)
 
