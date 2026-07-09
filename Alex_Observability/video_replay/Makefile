@@ -1,12 +1,14 @@
 # video_replay — run from this directory
-# Usage: make setup, make lint, make format-fix
+# Usage: make setup, make init-storage, make lint, make format-fix
 
-PYTHON   ?= python3
-VENV     := .venv
-VENV_BIN := $(VENV)/bin
-PY_SRC   := monitor.py read_robot_logs.py
+PYTHON      ?= python3
+VENV        := .venv
+VENV_BIN    := $(VENV)/bin
+PY_SRC      := monitor.py read_robot_logs.py
+REPO_ROOT   := $(abspath $(CURDIR)/../..)
+STORAGE_DIR := $(abspath $(REPO_ROOT)/../video_storage)
 
-.PHONY: setup lint lint-py lint-fix format-fix format-fix-py help
+.PHONY: setup init-storage lint lint-py lint-fix format-fix format-fix-py help
 
 # --- Setup ---
 setup:
@@ -16,6 +18,30 @@ setup:
 	@echo "Installing Python deps from requirements.txt..."
 	$(VENV_BIN)/pip install -r requirements.txt
 	@echo "Setup complete. Activate with: source $(VENV_BIN)/activate"
+
+# --- Storage layout (sibling to opentrons-fleet-manager) ---
+init-storage:
+	@echo "Creating video storage at $(STORAGE_DIR)..."
+	@mkdir -p "$(STORAGE_DIR)/clips" "$(STORAGE_DIR)/recordings"
+	@if [ ! -f "$(STORAGE_DIR)/config.example.yaml" ]; then \
+		cp config.example.yaml "$(STORAGE_DIR)/config.example.yaml"; \
+		echo "Installed config.example.yaml"; \
+	else \
+		echo "config.example.yaml already present"; \
+	fi
+	@if [ ! -f "$(STORAGE_DIR)/config.example.ini" ]; then \
+		cp config.example.ini "$(STORAGE_DIR)/config.example.ini"; \
+		echo "Installed config.example.ini"; \
+	else \
+		echo "config.example.ini already present"; \
+	fi
+	@echo ""
+	@echo "Storage ready: $(STORAGE_DIR)"
+	@echo "  clips/       — incident clips and robot_key (optional)"
+	@echo "  recordings/  — rolling ffmpeg buffer"
+	@echo ""
+	@echo "Next: cp $(STORAGE_DIR)/config.example.yaml $(STORAGE_DIR)/config.yaml"
+	@echo "      cp $(STORAGE_DIR)/config.example.ini $(STORAGE_DIR)/config.ini"
 
 # --- Lint (Ruff default rules — same as Observability_V0 lint-py) ---
 lint:
@@ -53,7 +79,8 @@ help:
 	@echo "video_replay Makefile (run from this directory)"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make setup       - Create .venv and install requirements.txt"
+	@echo "  make setup         - Create .venv and install requirements.txt"
+	@echo "  make init-storage  - Create ../video_storage with clips/, recordings/, config examples"
 	@echo ""
 	@echo "Quality:"
 	@echo "  make lint        - Run Ruff (Python, default rules)"

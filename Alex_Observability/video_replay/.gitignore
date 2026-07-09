@@ -55,4 +55,4 @@ recordings/
 
 # Ignore config files to prevent committing sensitive keys/tokens
 config.yaml
-*.ini
+config.ini

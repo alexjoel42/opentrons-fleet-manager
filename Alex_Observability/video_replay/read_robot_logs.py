@@ -17,6 +17,12 @@ import zipfile
 import websocket  # type: ignore[import-untyped,import-not-found]
 
 
+def _ensure_ssh_key_permissions(key_path: Path) -> None:
+    """OpenSSH refuses private keys readable by group or others."""
+    if key_path.is_file():
+        key_path.chmod(0o600)
+
+
 def save_run_log_to_json(
     ip: str, results: Dict[str, Any], storage_directory: Path
 ) -> str:
@@ -107,6 +113,7 @@ def retrieve_version_file(
     version_file_path = "/etc/VERSION.json"
     save_dir = Path(f"{str(storage)}")
     key_path = storage / "robot_key"
+    _ensure_ssh_key_permissions(key_path)
     command = [
         "scp",
         "-i",
@@ -296,6 +303,7 @@ def fetch_weston_log(
     """Get weston log via SSH journalctl, saved with robot name."""
     destination_path = Path(storage_directory) / "weston.log"
     key_path = Path(storage_directory) / "robot_key"
+    _ensure_ssh_key_permissions(key_path)
 
     try:
         result = subprocess.run(
