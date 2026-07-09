@@ -8,7 +8,7 @@ PY_SRC      := monitor.py read_robot_logs.py
 REPO_ROOT   := $(abspath $(CURDIR)/../..)
 STORAGE_DIR := $(abspath $(REPO_ROOT)/../video_storage)
 
-.PHONY: setup install-ffmpeg check-ffmpeg init-storage lint lint-py lint-fix format-fix format-fix-py help
+.PHONY: setup install-ffmpeg check-ffmpeg install-deps init-storage lint lint-py lint-fix format-fix format-fix-py help
 
 # --- ffmpeg (system dependency for HLS recording) ---
 check-ffmpeg:
@@ -44,13 +44,25 @@ install-ffmpeg:
 	fi
 
 # --- Setup ---
+install-deps:
+	@if [ ! -x $(VENV_BIN)/pip ]; then \
+		echo "No venv found. Run: make setup"; \
+		exit 1; \
+	fi
+	@echo "Installing Python dependencies into $(VENV)..."
+	@$(VENV_BIN)/pip install --upgrade pip
+	@$(VENV_BIN)/pip install -r requirements.txt
+
 setup: install-ffmpeg
 	@echo "Creating Python venv..."
-	$(PYTHON) -m venv $(VENV)
-	$(VENV_BIN)/pip install --upgrade pip
-	@echo "Installing Python deps from requirements.txt..."
-	$(VENV_BIN)/pip install -r requirements.txt
-	@echo "Setup complete. Activate with: source $(VENV_BIN)/activate"
+	@$(PYTHON) -m venv $(VENV)
+	@echo "Installing Python dependencies into $(VENV)..."
+	@$(VENV_BIN)/pip install --upgrade pip
+	@$(VENV_BIN)/pip install -r requirements.txt
+	@echo ""
+	@echo "Setup complete."
+	@echo "  Activate: source $(VENV_BIN)/activate"
+	@echo "  Run:      $(VENV_BIN)/python $(CURDIR)/monitor.py --storage-directory $(STORAGE_DIR)"
 
 # --- Storage layout (sibling to opentrons-fleet-manager) ---
 init-storage:
@@ -112,7 +124,8 @@ help:
 	@echo "video_replay Makefile (run from this directory)"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make setup          - Install ffmpeg (if needed), create .venv, install requirements.txt"
+	@echo "  make setup          - ffmpeg → .venv → pip install (one command, no activation needed)"
+	@echo "  make install-deps   - Re-install requirements.txt into existing .venv"
 	@echo "  make install-ffmpeg - Install ffmpeg via brew/apt/dnf (no-op if already on PATH)"
 	@echo "  make check-ffmpeg   - Verify ffmpeg is on PATH"
 	@echo "  make init-storage   - Create ../video_storage with clips/, recordings/, config examples"
