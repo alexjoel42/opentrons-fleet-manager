@@ -642,7 +642,6 @@ def try_ssh(ip: str) -> None:
         raise SystemExit(f"Cannot SSH to root@{ip}: {exc}") from exc
 
     if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit code {result.returncode}"
         raise SystemExit(f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh")
 
     print(f"SSH connection with {ip} succeeded")
