@@ -8,10 +8,43 @@ PY_SRC      := monitor.py read_robot_logs.py
 REPO_ROOT   := $(abspath $(CURDIR)/../..)
 STORAGE_DIR := $(abspath $(REPO_ROOT)/../video_storage)
 
-.PHONY: setup init-storage lint lint-py lint-fix format-fix format-fix-py help
+.PHONY: setup install-ffmpeg check-ffmpeg init-storage lint lint-py lint-fix format-fix format-fix-py help
+
+# --- ffmpeg (system dependency for HLS recording) ---
+check-ffmpeg:
+	@if command -v ffmpeg >/dev/null 2>&1; then \
+		echo "ffmpeg: $$(ffmpeg -version 2>/dev/null | head -1)"; \
+	else \
+		echo "ffmpeg not found on PATH. Run: make install-ffmpeg"; \
+		exit 1; \
+	fi
+
+install-ffmpeg:
+	@if command -v ffmpeg >/dev/null 2>&1; then \
+		echo "ffmpeg already installed: $$(ffmpeg -version 2>/dev/null | head -1)"; \
+	elif [ "$$(uname -s)" = "Darwin" ]; then \
+		if ! command -v brew >/dev/null 2>&1; then \
+			echo "Homebrew not found. Install from https://brew.sh then run: brew install ffmpeg"; \
+			exit 1; \
+		fi; \
+		echo "Installing ffmpeg via Homebrew..."; \
+		brew install ffmpeg; \
+	elif command -v apt-get >/dev/null 2>&1; then \
+		echo "Installing ffmpeg via apt..."; \
+		sudo apt-get update && sudo apt-get install -y ffmpeg; \
+	elif command -v dnf >/dev/null 2>&1; then \
+		echo "Installing ffmpeg via dnf..."; \
+		sudo dnf install -y ffmpeg; \
+	elif command -v yum >/dev/null 2>&1; then \
+		echo "Installing ffmpeg via yum..."; \
+		sudo yum install -y ffmpeg; \
+	else \
+		echo "Could not detect a package manager. Install ffmpeg manually: https://ffmpeg.org/download.html"; \
+		exit 1; \
+	fi
 
 # --- Setup ---
-setup:
+setup: install-ffmpeg
 	@echo "Creating Python venv..."
 	$(PYTHON) -m venv $(VENV)
 	$(VENV_BIN)/pip install --upgrade pip
@@ -79,8 +112,10 @@ help:
 	@echo "video_replay Makefile (run from this directory)"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make setup         - Create .venv and install requirements.txt"
-	@echo "  make init-storage  - Create ../video_storage with clips/, recordings/, config examples"
+	@echo "  make setup          - Install ffmpeg (if needed), create .venv, install requirements.txt"
+	@echo "  make install-ffmpeg - Install ffmpeg via brew/apt/dnf (no-op if already on PATH)"
+	@echo "  make check-ffmpeg   - Verify ffmpeg is on PATH"
+	@echo "  make init-storage   - Create ../video_storage with clips/, recordings/, config examples"
 	@echo ""
 	@echo "Quality:"
 	@echo "  make lint        - Run Ruff (Python, default rules)"
