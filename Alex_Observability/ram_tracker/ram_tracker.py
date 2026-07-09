@@ -18,6 +18,40 @@ import matplotlib.dates as mdates
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MEMORY_RESULTS_DIR = REPO_ROOT.parent / "memory results"
 
+def try_ssh(ip: str) -> None:
+    """Verify SSH access to a robot using default ~/.ssh keys.
+
+    Raises SystemExit if the connection fails for any reason (timeout, bad key,
+    unreachable host, etc.).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                f"root@{ip}",
+                "true",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh"
+        ) from exc
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise SystemExit(f"Cannot SSH to root@{ip}: {exc}") from exc
+
+    if result.returncode != 0:
+        raise SystemExit(f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh")
+
+    print(f"SSH connection with {ip} succeeded")
 
 def ensure_memory_results_dir() -> Path:
     """Create the output folder (sibling to opentrons-fleet-manager) if needed."""
@@ -295,6 +329,8 @@ if __name__ == "__main__":
         if not ip_address:
             print("Robot IP is required.", file=sys.stderr)
             raise SystemExit(1)
+    
+    try_ssh(ip_address)
 
     robot_name = find_name(ip_address)
     session_dir = create_session_dir(output_dir, robot_name)
