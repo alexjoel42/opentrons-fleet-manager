@@ -409,7 +409,11 @@ if __name__ == "__main__":
                         json_file.write(json.dumps(json_msg) + "\n")
             except ConnectionError as exc:
                 print(f"{exc}", flush=True)
+                i = 0
+                if len(used_history) == used_history.maxlen and i > 1:
+                    raise KeyboardInterrupt("SSH Disconnected Mid-Run")
                 print("Retrying SSH in 5 seconds...", flush=True)
+                i += 1
                 time.sleep(5)
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Creating memory plot...", flush=True)
