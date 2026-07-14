@@ -25,6 +25,7 @@ import configparser
 import logging
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -137,6 +138,10 @@ class RobotConfig:
 class Config:
     poll_interval_seconds: float = 3.0
     opentrons_version: str = "2"
+    # Base --storage-directory: holds config.yaml, robot_key, slack_token.txt.
+    # This is where get_logs (read_robot_logs.py) reads its SSH key and writes
+    # its scratch logs, matching the abr-testing Slack-bot scripts.
+    storage_dir: str = ""
     output_dir: str = "./clips"
     work_dir: str = "./recordings"
     clip: ClipConfig = field(default_factory=ClipConfig)
@@ -189,6 +194,7 @@ def load_config(path: str, storage_dir: Path) -> Config:
     return Config(
         poll_interval_seconds=float(raw.get("poll_interval_seconds", 3.0)),
         opentrons_version=str(raw.get("opentrons_version", "2")),
+        storage_dir=str(storage_dir),
         output_dir=resolve_path(raw.get("output_dir", "./clips")),
         work_dir=resolve_path(raw.get("work_dir", "./recordings")),
         clip=ClipConfig(**(raw.get("clip") or {})),
@@ -215,6 +221,58 @@ def _read_token_file(path: str) -> str:
     if not token:
         raise SystemExit(f"Slack token file '{path}' is empty.")
     return token
+
+
+AI_HEADER_TEXT = "🤖 AI Video Analysis"
+# Block Kit section text is capped at 3000 chars; leave room and split if needed.
+_AI_SECTION_LIMIT = 2900
+
+
+def _to_slack_mrkdwn(text: str) -> str:
+    """Convert standard markdown to Slack's mrkdwn dialect.
+
+    Slack does not use standard markdown: bold is *one* asterisk (not **two**),
+    italic is _underscores_, and there are no `#` headers. The Gemini model emits
+    standard markdown (e.g. ``**Error:**``), which would otherwise render as
+    literal asterisks in Slack, so normalize it here.
+    See https://docs.slack.dev/messaging/formatting-message-text/.
+    """
+    lines = []
+    for line in text.splitlines():
+        # `# Heading` -> `*Heading*` (mrkdwn has no headers, so bold it).
+        heading = re.match(r"\s*#{1,6}\s+(.*\S)\s*$", line)
+        if heading:
+            line = f"*{heading.group(1)}*"
+        else:
+            # Bullets: markdown `- ` / `* ` / `+ ` -> Slack `• `.
+            line = re.sub(r"^(\s*)[-*+]\s+", r"\1• ", line)
+        lines.append(line)
+    out = "\n".join(lines)
+    # `**bold**` -> `*bold*` (do this after headings so it doesn't eat `#`).
+    out = re.sub(r"\*\*(.+?)\*\*", r"*\1*", out, flags=re.DOTALL)
+    # Collapse 3+ blank lines that Slack would render as large gaps.
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
+def _build_analysis_blocks(analysis: str) -> list:
+    """Build Block Kit blocks: a header plus mrkdwn section(s) for the analysis."""
+    body = _to_slack_mrkdwn(analysis)
+    blocks: list = [
+        {"type": "header", "text": {"type": "plain_text", "text": AI_HEADER_TEXT}},
+    ]
+    # Split long bodies across multiple section blocks on paragraph boundaries.
+    chunk = ""
+    for para in body.split("\n\n"):
+        if chunk and len(chunk) + len(para) + 2 > _AI_SECTION_LIMIT:
+            blocks.append(
+                {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+            )
+            chunk = ""
+        chunk = f"{chunk}\n\n{para}" if chunk else para
+    if chunk:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+    return blocks
 
 
 def _format_message(robot_name: str, meta: dict) -> str:
@@ -270,7 +328,8 @@ class SlackNotifier:
     """
 
     def __init__(self, token: str, channel: str,
-                 username: str = "robot-monitor", upload_clip: bool = True):
+                 username: str = "robot-monitor", upload_clip: bool = True,
+                 gemini_api_key: str = ""):
         try:
             from slack_sdk import WebClient
         except ImportError as exc:  # pragma: no cover
@@ -283,6 +342,7 @@ class SlackNotifier:
         self.channel = channel
         self.username = username
         self.upload_clip = upload_clip
+        self.gemini_api_key = gemini_api_key
         self.channel_id = self._channel_id_from_name(channel)
         if self.channel_id is None:
             log.warning("Slack channel '%s' not found (file upload may fail); "
@@ -360,6 +420,47 @@ class SlackNotifier:
                 log.warning("[%s] Slack upload of %s failed: %s", robot_name, path, exc)
         log.debug("[%s] Slack notification sent", robot_name)
 
+        # Kick off Gemini video analysis in the background so it doesn't block
+        # this robot's poll loop; it posts the result back into the thread.
+        clip_path = meta.get("clip_path")
+        if not self.gemini_api_key:
+            log.info("[%s] skipping AI analysis: GEMINI_API_KEY not set", robot_name)
+        elif not (clip_path and os.path.exists(clip_path)):
+            log.info("[%s] skipping AI analysis: no clip on disk (%s)",
+                     robot_name, clip_path)
+        else:
+            threading.Thread(
+                target=self._post_analysis,
+                args=(robot_name, clip_path, thread_ts),
+                daemon=True,
+            ).start()
+
+    def _post_analysis(self, robot_name: str, clip_path: str, thread_ts: str) -> None:
+        """Run Gemini analysis on the local clip and reply in-thread."""
+        log.info("[%s] starting AI video analysis of %s",
+                 robot_name, os.path.basename(clip_path))
+        try:
+            from ai_analysis import analyze_video
+
+            analysis = analyze_video(clip_path, self.gemini_api_key)
+        except Exception as exc:  # noqa: BLE001 - never let analysis break alerts
+            log.warning("[%s] AI video analysis failed: %s", robot_name, exc)
+            return
+        if not analysis:
+            log.info("[%s] AI analysis returned no content", robot_name)
+            return
+        try:
+            self.client.chat_postMessage(
+                channel=self.channel,
+                thread_ts=thread_ts,
+                # `text` is the notification/fallback; `blocks` renders the message.
+                text=f"{AI_HEADER_TEXT}\n{_to_slack_mrkdwn(analysis)}",
+                blocks=_build_analysis_blocks(analysis),
+            )
+            log.info("[%s] posted AI video analysis", robot_name)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[%s] posting AI analysis failed: %s", robot_name, exc)
+
 
 def _resolve_slack_token(n: NotifyConfig) -> str:
     """Resolve the shared Slack token from token_ini or token_file."""
@@ -424,7 +525,8 @@ def build_robot_notifier(robot: RobotConfig, cfg: Config):
     # Poster name defaults to the robot's own name; slack_username (per robot)
     # or notify.username (global) override it if set.
     username = robot.slack_username or n.username or robot.name
-    return SlackNotifier(token, channel, username, n.upload_clip)
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+    return SlackNotifier(token, channel, username, n.upload_clip, gemini_api_key)
 
 
 # --------------------------------------------------------------------------- #
@@ -570,8 +672,7 @@ def prune_old_clips(output_dir: str, keep: int) -> None:
 
     Each error gets its own subfolder (clip + logs zip), so this caps the total
     number of incident folders kept (shared across all robots) and deletes the
-    oldest ones wholesale. Loose files in output_dir (e.g. robot_key, get_logs
-    scratch) are left untouched.
+    oldest ones wholesale. Loose files in output_dir are left untouched.
     """
     if keep <= 0:
         return
@@ -755,7 +856,7 @@ class IncidentHandler:
         }
 
         log_zip = fetch_robot_logs(
-            self.robot.ip, self.cfg.output_dir, dest_dir=incident_dir
+            self.robot.ip, self.cfg.storage_dir, dest_dir=incident_dir
         )
         if log_zip:
             meta["log_zip"] = log_zip
