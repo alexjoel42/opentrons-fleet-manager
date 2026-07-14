@@ -138,6 +138,10 @@ class RobotConfig:
 class Config:
     poll_interval_seconds: float = 3.0
     opentrons_version: str = "2"
+    # Base --storage-directory: holds config.yaml, robot_key, slack_token.txt.
+    # This is where get_logs (read_robot_logs.py) reads its SSH key and writes
+    # its scratch logs, matching the abr-testing Slack-bot scripts.
+    storage_dir: str = ""
     output_dir: str = "./clips"
     work_dir: str = "./recordings"
     clip: ClipConfig = field(default_factory=ClipConfig)
@@ -190,6 +194,7 @@ def load_config(path: str, storage_dir: Path) -> Config:
     return Config(
         poll_interval_seconds=float(raw.get("poll_interval_seconds", 3.0)),
         opentrons_version=str(raw.get("opentrons_version", "2")),
+        storage_dir=str(storage_dir),
         output_dir=resolve_path(raw.get("output_dir", "./clips")),
         work_dir=resolve_path(raw.get("work_dir", "./recordings")),
         clip=ClipConfig(**(raw.get("clip") or {})),
@@ -667,8 +672,7 @@ def prune_old_clips(output_dir: str, keep: int) -> None:
 
     Each error gets its own subfolder (clip + logs zip), so this caps the total
     number of incident folders kept (shared across all robots) and deletes the
-    oldest ones wholesale. Loose files in output_dir (e.g. robot_key, get_logs
-    scratch) are left untouched.
+    oldest ones wholesale. Loose files in output_dir are left untouched.
     """
     if keep <= 0:
         return
@@ -852,7 +856,7 @@ class IncidentHandler:
         }
 
         log_zip = fetch_robot_logs(
-            self.robot.ip, self.cfg.output_dir, dest_dir=incident_dir
+            self.robot.ip, self.cfg.storage_dir, dest_dir=incident_dir
         )
         if log_zip:
             meta["log_zip"] = log_zip

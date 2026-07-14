@@ -12,7 +12,7 @@ import time
 import zipfile
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 # Logs are collected tail-first (errors happen at the end of a run) and capped so
 # a single noisy run can't blow up the request. api/server logs carry the most
@@ -20,6 +20,12 @@ from google.genai import types
 _LOG_PRIORITY = ("api", "server", "serial", "touchscreen", "weston")
 _MAX_CHARS_PER_LOG = 20000
 _MAX_CHARS_TOTAL = 60000
+
+# Gemini periodically returns 503 UNAVAILABLE ("high demand") on generate_content.
+# The video is already uploaded by then, so we just retry the model call rather
+# than redoing the upload, backing off exponentially: 3s, 6s, 12s.
+_GENERATE_MAX_ATTEMPTS = 4
+_GENERATE_RETRY_BASE_SLEEP = 3  # seconds; doubled each retry
 
 
 def _extract_logs(logs_path: str | None) -> str | None:
@@ -157,16 +163,31 @@ def analyze_video(
         )
     contents.append(user_prompt)
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash",
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.2,
-        ),
-    )
+    for attempt in range(1, _GENERATE_MAX_ATTEMPTS + 1):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.2,
+                ),
+            )
+            return response.text
+        except errors.ServerError as exc:
+            # 5xx (e.g. 503 UNAVAILABLE "high demand") is transient. The video is
+            # already uploaded, so retry only the model call after a short pause.
+            if attempt == _GENERATE_MAX_ATTEMPTS:
+                raise
+            sleep_s = _GENERATE_RETRY_BASE_SLEEP * 2 ** (attempt - 1)
+            print(
+                f"Gemini generate_content failed ({exc}); "
+                f"retrying in {sleep_s}s "
+                f"(attempt {attempt}/{_GENERATE_MAX_ATTEMPTS})"
+            )
+            time.sleep(sleep_s)
 
-    return response.text
+    return None
 
 
 if __name__ == "__main__":
