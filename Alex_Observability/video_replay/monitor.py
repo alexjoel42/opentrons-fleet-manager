@@ -270,7 +270,8 @@ class SlackNotifier:
     """
 
     def __init__(self, token: str, channel: str,
-                 username: str = "robot-monitor", upload_clip: bool = True):
+                 username: str = "robot-monitor", upload_clip: bool = True,
+                 gemini_api_key: str = ""):
         try:
             from slack_sdk import WebClient
         except ImportError as exc:  # pragma: no cover
@@ -283,6 +284,7 @@ class SlackNotifier:
         self.channel = channel
         self.username = username
         self.upload_clip = upload_clip
+        self.gemini_api_key = gemini_api_key
         self.channel_id = self._channel_id_from_name(channel)
         if self.channel_id is None:
             log.warning("Slack channel '%s' not found (file upload may fail); "
@@ -360,6 +362,53 @@ class SlackNotifier:
                 log.warning("[%s] Slack upload of %s failed: %s", robot_name, path, exc)
         log.debug("[%s] Slack notification sent", robot_name)
 
+        # Kick off Gemini video analysis in the background so it doesn't block
+        # this robot's poll loop; it posts the result back into the thread.
+        clip_path = meta.get("clip_path")
+        if not self.gemini_api_key:
+            log.info("[%s] skipping AI analysis: GEMINI_API_KEY not set", robot_name)
+        elif not (clip_path and os.path.exists(clip_path)):
+            log.info("[%s] skipping AI analysis: no clip on disk (%s)",
+                     robot_name, clip_path)
+        else:
+            log_zip = meta.get("log_zip")
+            threading.Thread(
+                target=self._post_analysis,
+                args=(robot_name, clip_path, thread_ts, log_zip),
+                daemon=True,
+            ).start()
+
+    def _post_analysis(
+        self,
+        robot_name: str,
+        clip_path: str,
+        thread_ts: str,
+        log_zip: str | None = None,
+    ) -> None:
+        """Run Gemini analysis on the local clip (+ logs) and reply in-thread."""
+        log.info("[%s] starting AI video analysis of %s",
+                 robot_name, os.path.basename(clip_path))
+        logs_path = log_zip if log_zip and os.path.exists(log_zip) else None
+        try:
+            from ai_analysis import analyze_video
+
+            analysis = analyze_video(clip_path, self.gemini_api_key, logs_path)
+        except Exception as exc:  # noqa: BLE001 - never let analysis break alerts
+            log.warning("[%s] AI video analysis failed: %s", robot_name, exc)
+            return
+        if not analysis:
+            log.info("[%s] AI analysis returned no content", robot_name)
+            return
+        try:
+            self.client.chat_postMessage(
+                channel=self.channel,
+                thread_ts=thread_ts,
+                text=f"*AI Video Analysis:*\n{analysis}",
+            )
+            log.info("[%s] posted AI video analysis", robot_name)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[%s] posting AI analysis failed: %s", robot_name, exc)
+
 
 def _resolve_slack_token(n: NotifyConfig) -> str:
     """Resolve the shared Slack token from token_ini or token_file."""
@@ -424,7 +473,8 @@ def build_robot_notifier(robot: RobotConfig, cfg: Config):
     # Poster name defaults to the robot's own name; slack_username (per robot)
     # or notify.username (global) override it if set.
     username = robot.slack_username or n.username or robot.name
-    return SlackNotifier(token, channel, username, n.upload_clip)
+    gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+    return SlackNotifier(token, channel, username, n.upload_clip, gemini_api_key)
 
 
 # --------------------------------------------------------------------------- #
