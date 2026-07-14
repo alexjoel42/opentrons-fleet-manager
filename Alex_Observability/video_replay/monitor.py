@@ -371,28 +371,20 @@ class SlackNotifier:
             log.info("[%s] skipping AI analysis: no clip on disk (%s)",
                      robot_name, clip_path)
         else:
-            log_zip = meta.get("log_zip")
             threading.Thread(
                 target=self._post_analysis,
-                args=(robot_name, clip_path, thread_ts, log_zip),
+                args=(robot_name, clip_path, thread_ts),
                 daemon=True,
             ).start()
 
-    def _post_analysis(
-        self,
-        robot_name: str,
-        clip_path: str,
-        thread_ts: str,
-        log_zip: str | None = None,
-    ) -> None:
-        """Run Gemini analysis on the local clip (+ logs) and reply in-thread."""
+    def _post_analysis(self, robot_name: str, clip_path: str, thread_ts: str) -> None:
+        """Run Gemini analysis on the local clip and reply in-thread."""
         log.info("[%s] starting AI video analysis of %s",
                  robot_name, os.path.basename(clip_path))
-        logs_path = log_zip if log_zip and os.path.exists(log_zip) else None
         try:
             from ai_analysis import analyze_video
 
-            analysis = analyze_video(clip_path, self.gemini_api_key, logs_path)
+            analysis = analyze_video(clip_path, self.gemini_api_key)
         except Exception as exc:  # noqa: BLE001 - never let analysis break alerts
             log.warning("[%s] AI video analysis failed: %s", robot_name, exc)
             return
