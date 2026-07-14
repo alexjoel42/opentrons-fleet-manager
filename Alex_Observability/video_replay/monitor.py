@@ -25,6 +25,7 @@ import configparser
 import logging
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -217,6 +218,58 @@ def _read_token_file(path: str) -> str:
     return token
 
 
+AI_HEADER_TEXT = "🤖 AI Video Analysis"
+# Block Kit section text is capped at 3000 chars; leave room and split if needed.
+_AI_SECTION_LIMIT = 2900
+
+
+def _to_slack_mrkdwn(text: str) -> str:
+    """Convert standard markdown to Slack's mrkdwn dialect.
+
+    Slack does not use standard markdown: bold is *one* asterisk (not **two**),
+    italic is _underscores_, and there are no `#` headers. The Gemini model emits
+    standard markdown (e.g. ``**Error:**``), which would otherwise render as
+    literal asterisks in Slack, so normalize it here.
+    See https://docs.slack.dev/messaging/formatting-message-text/.
+    """
+    lines = []
+    for line in text.splitlines():
+        # `# Heading` -> `*Heading*` (mrkdwn has no headers, so bold it).
+        heading = re.match(r"\s*#{1,6}\s+(.*\S)\s*$", line)
+        if heading:
+            line = f"*{heading.group(1)}*"
+        else:
+            # Bullets: markdown `- ` / `* ` / `+ ` -> Slack `• `.
+            line = re.sub(r"^(\s*)[-*+]\s+", r"\1• ", line)
+        lines.append(line)
+    out = "\n".join(lines)
+    # `**bold**` -> `*bold*` (do this after headings so it doesn't eat `#`).
+    out = re.sub(r"\*\*(.+?)\*\*", r"*\1*", out, flags=re.DOTALL)
+    # Collapse 3+ blank lines that Slack would render as large gaps.
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
+def _build_analysis_blocks(analysis: str) -> list:
+    """Build Block Kit blocks: a header plus mrkdwn section(s) for the analysis."""
+    body = _to_slack_mrkdwn(analysis)
+    blocks: list = [
+        {"type": "header", "text": {"type": "plain_text", "text": AI_HEADER_TEXT}},
+    ]
+    # Split long bodies across multiple section blocks on paragraph boundaries.
+    chunk = ""
+    for para in body.split("\n\n"):
+        if chunk and len(chunk) + len(para) + 2 > _AI_SECTION_LIMIT:
+            blocks.append(
+                {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+            )
+            chunk = ""
+        chunk = f"{chunk}\n\n{para}" if chunk else para
+    if chunk:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+    return blocks
+
+
 def _format_message(robot_name: str, meta: dict) -> str:
     reason = meta.get('reason')
     protocol = meta.get('protocol_name')
@@ -395,7 +448,9 @@ class SlackNotifier:
             self.client.chat_postMessage(
                 channel=self.channel,
                 thread_ts=thread_ts,
-                text=f"*AI Video Analysis:*\n{analysis}",
+                # `text` is the notification/fallback; `blocks` renders the message.
+                text=f"{AI_HEADER_TEXT}\n{_to_slack_mrkdwn(analysis)}",
+                blocks=_build_analysis_blocks(analysis),
             )
             log.info("[%s] posted AI video analysis", robot_name)
         except Exception as exc:  # noqa: BLE001
