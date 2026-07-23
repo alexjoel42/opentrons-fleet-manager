@@ -593,9 +593,9 @@ def fetch_robot_logs(ip: str, storage_dir: str, dest_dir: str | None = None) -> 
     """Download a robot's logs via abr-testing's get_logs; return the .zip path.
 
     Loads read_robot_logs.py from READ_ROBOT_LOGS_PATH (its package root is added
-    to sys.path so its `abr_testing.*` imports resolve). get_logs reads its SSH
-    key from "{storage_dir}/robot_key" and writes there, so storage_dir stays
-    stable. If dest_dir is given, the finished zip is moved into it (e.g. the
+    to sys.path so its `abr_testing.*` imports resolve). get_logs uses SSH from
+    "{storage_dir}/robot_key" if present, otherwise ~/.ssh (id_ed25519, id_rsa,
+    or robot_key). Writes temp files under storage_dir. If dest_dir is given, the
     per-incident folder). Returns None on any failure so a logging hiccup never
     blocks the clip/notification.
     """
@@ -611,7 +611,40 @@ def fetch_robot_logs(ip: str, storage_dir: str, dest_dir: str | None = None) -> 
         log.warning("log collection failed for %s: %s", ip, exc)
         return None
 
+def try_ssh(ip: str) -> None:
+    """Verify SSH access to a robot using default ~/.ssh keys.
 
+    Raises SystemExit if the connection fails for any reason (timeout, bad key,
+    unreachable host, etc.).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                f"root@{ip}",
+                "true",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh"
+        ) from exc
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise SystemExit(f"Cannot SSH to root@{ip}: {exc}") from exc
+
+    if result.returncode != 0:
+        raise SystemExit(f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh")
+
+    print(f"SSH connection with {ip} succeeded")
 # --------------------------------------------------------------------------- #
 # Per-run trigger bookkeeping
 # --------------------------------------------------------------------------- #
@@ -1123,6 +1156,9 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
+
+    for robot in cfg.robots:
+        try_ssh(robot.ip)
 
     watchers = [
         RobotWatcher(r, cfg, stop_event, build_robot_notifier(r, cfg))

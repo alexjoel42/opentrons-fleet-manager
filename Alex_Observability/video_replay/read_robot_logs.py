@@ -17,6 +17,7 @@ import zipfile
 import websocket  # type: ignore[import-untyped,import-not-found]
 
 
+
 def save_run_log_to_json(
     ip: str, results: Dict[str, Any], storage_directory: Path
 ) -> str:
@@ -106,11 +107,8 @@ def retrieve_version_file(
     """Retrieve Version file."""
     version_file_path = "/etc/VERSION.json"
     save_dir = Path(f"{str(storage)}")
-    key_path = storage / "robot_key"
     command = [
         "scp",
-        "-i",
-        str(key_path),
         "-o",
         "StrictHostKeyChecking=no",
         "-r",
@@ -233,11 +231,9 @@ def get_run_data(one_run: Any, ip: str) -> Dict[str, Any]:
 def get_logs(storage_directory: Path, ip: str) -> str:
     """Collect Robot logs, organize in a zip file, then return the zip path."""
     collected_files, robot_name, sw_version = get_basic_logs(ip, storage_directory)
-    # Collect all nonstandard logs
     collected_files = fetch_weston_log(
         ip, storage_directory, collected_files, robot_name
     )
-
     calibration_file, _ = get_calibration_offsets(
         ip, storage_directory, collected_files
     )
@@ -295,14 +291,11 @@ def fetch_weston_log(
 ) -> list[str]:
     """Get weston log via SSH journalctl, saved with robot name."""
     destination_path = Path(storage_directory) / "weston.log"
-    key_path = Path(storage_directory) / "robot_key"
 
     try:
         result = subprocess.run(
             [
                 "ssh",
-                "-i",
-                str(key_path),
                 "-o",
                 "StrictHostKeyChecking=no",
                 "-o",
