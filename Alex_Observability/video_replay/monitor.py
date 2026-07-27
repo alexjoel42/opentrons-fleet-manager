@@ -269,6 +269,9 @@ class SlackNotifier:
     config.ini via SlackNotifier.from_ini().
     """
 
+    # Cache channel ID as we can hit rate limits with many robots
+    _channel_id_cache: dict[tuple[str, str], str | None] = {}
+
     def __init__(self, token: str, channel: str,
                  username: str = "robot-monitor", upload_clip: bool = True):
         try:
@@ -283,10 +286,13 @@ class SlackNotifier:
         self.channel = channel
         self.username = username
         self.upload_clip = upload_clip
-        self.channel_id = self._channel_id_from_name(channel)
-        if self.channel_id is None:
-            log.warning("Slack channel '%s' not found (file upload may fail); "
-                        "is the bot invited to it?", channel)
+        cache_key = (token, channel)
+        if cache_key not in SlackNotifier._channel_id_cache:
+            SlackNotifier._channel_id_cache[cache_key] = self._channel_id_from_name(channel)
+            if SlackNotifier._channel_id_cache[cache_key] is None:
+                log.warning("Slack channel '%s' not found (file upload may fail); "
+                            "is the bot invited to it?", channel)
+        self.channel_id = SlackNotifier._channel_id_cache[cache_key]
 
     @classmethod
     def from_token_file(cls, token_file: str, channel: str,
