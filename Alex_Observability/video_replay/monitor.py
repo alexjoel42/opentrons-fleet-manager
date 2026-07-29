@@ -57,7 +57,6 @@ ACTIVE_STATUSES = {
     "stop-requested",
 }
 
-# Statuses to trigger a run start
 STARTED_STATUSES = {"running"}
 
 ERROR_STATUSES = {
@@ -987,7 +986,7 @@ class RunLifecycle:
         is_new_run = self.run_state is None or self.run_state.run_id != run_id
         if is_new_run:
             # Now we fully rely on running status to start runs
-            # removing old glitch where 
+            # removing old glitch when cancelling runs in start page
             if status not in STARTED_STATUSES:
                 if self.run_state is not None:
                     self.recorder.stop()
