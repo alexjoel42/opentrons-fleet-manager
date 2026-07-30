@@ -327,6 +327,9 @@ class SlackNotifier:
     config.ini via SlackNotifier.from_ini().
     """
 
+    # Cache channel ID as we can hit rate limits with many robots
+    _channel_id_cache: dict[tuple[str, str], str | None] = {}
+
     def __init__(self, token: str, channel: str,
                  username: str = "robot-monitor", upload_clip: bool = True,
                  gemini_api_key: str = ""):
@@ -342,11 +345,13 @@ class SlackNotifier:
         self.channel = channel
         self.username = username
         self.upload_clip = upload_clip
-        self.gemini_api_key = gemini_api_key
-        self.channel_id = self._channel_id_from_name(channel)
-        if self.channel_id is None:
-            log.warning("Slack channel '%s' not found (file upload may fail); "
-                        "is the bot invited to it?", channel)
+        cache_key = (token, channel)
+        if cache_key not in SlackNotifier._channel_id_cache:
+            SlackNotifier._channel_id_cache[cache_key] = self._channel_id_from_name(channel)
+            if SlackNotifier._channel_id_cache[cache_key] is None:
+                log.warning("Slack channel '%s' not found (file upload may fail); "
+                            "is the bot invited to it?", channel)
+        self.channel_id = SlackNotifier._channel_id_cache[cache_key]
 
     @classmethod
     def from_token_file(cls, token_file: str, channel: str,
@@ -694,9 +699,9 @@ def fetch_robot_logs(ip: str, storage_dir: str, dest_dir: str | None = None) -> 
     """Download a robot's logs via abr-testing's get_logs; return the .zip path.
 
     Loads read_robot_logs.py from READ_ROBOT_LOGS_PATH (its package root is added
-    to sys.path so its `abr_testing.*` imports resolve). get_logs reads its SSH
-    key from "{storage_dir}/robot_key" and writes there, so storage_dir stays
-    stable. If dest_dir is given, the finished zip is moved into it (e.g. the
+    to sys.path so its `abr_testing.*` imports resolve). get_logs uses SSH from
+    "{storage_dir}/robot_key" if present, otherwise ~/.ssh (id_ed25519, id_rsa,
+    or robot_key). Writes temp files under storage_dir. If dest_dir is given, the
     per-incident folder). Returns None on any failure so a logging hiccup never
     blocks the clip/notification.
     """
@@ -712,7 +717,40 @@ def fetch_robot_logs(ip: str, storage_dir: str, dest_dir: str | None = None) -> 
         log.warning("log collection failed for %s: %s", ip, exc)
         return None
 
+def try_ssh(ip: str) -> None:
+    """Verify SSH access to a robot using default ~/.ssh keys.
 
+    Raises SystemExit if the connection fails for any reason (timeout, bad key,
+    unreachable host, etc.).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                f"root@{ip}",
+                "true",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh"
+        ) from exc
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise SystemExit(f"Cannot SSH to root@{ip}: {exc}") from exc
+
+    if result.returncode != 0:
+        raise SystemExit(f"Cannot connect to {ip}. Please confirm {ip}'s ssh key is in .ssh")
+
+    print(f"SSH connection with {ip} succeeded")
 # --------------------------------------------------------------------------- #
 # Per-run trigger bookkeeping
 # --------------------------------------------------------------------------- #
@@ -1224,6 +1262,9 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
+
+    for robot in cfg.robots:
+        try_ssh(robot.ip)
 
     watchers = [
         RobotWatcher(r, cfg, stop_event, build_robot_notifier(r, cfg))

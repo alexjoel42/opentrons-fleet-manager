@@ -1,0 +1,55 @@
+# Copy this file to config.yaml and edit it for your setup.
+#
+#   cp config.example.yaml config.yaml
+
+# How often (seconds) to poll each robot's HTTP API for run status.
+poll_interval_seconds: 10
+
+# Opentrons HTTP API version header, * accepts any version.
+opentrons_version: "*"
+
+# Where finished error clips (.mp4) and their metadata (.json) are written.
+# Folder also contains robot keys.
+output_dir: "./clips"
+
+# Scratch space for the rolling video buffer (one subfolder per robot).
+# Gets cleaned up automatically; safe to point at fast/temp storage.
+work_dir: "./recordings"
+
+clip:
+  # Seconds of footage to keep *before* the error in the saved clip.
+  pre_error_seconds: 120
+  # Seconds to keep recording AFTER the error before cutting the clip, then stop.
+  post_error_seconds: 10
+  # Length of each rolling buffer segment ffmpeg writes (smaller = finer
+  # granularity but more files). 10s is a good default.
+  segment_seconds: 10
+  # Total seconds of rolling video to retain on disk while a run is active.
+  # Should be comfortably larger than pre_error_seconds.
+  buffer_seconds: 180
+  # Minimum seconds between two saved clips for the same robot.
+  cooldown_seconds: 60
+
+# Which conditions cause a clip to be saved.
+triggers:
+  on_error_recovery: true   # run enters "awaiting-recovery"
+  on_failed: true           # run status becomes "failed"
+  on_command_error: true    # a new error appears in the run's error list
+
+# One shared Slack key for all robots (token read from config.ini).
+notify:
+  enabled: true
+  type: "slack"
+  token_ini: "./config.ini"          # shared [DEFAULT] slack_token = xoxb-...
+  channel: "abr-robot-alerts"        # default channel for all robots
+  username: ""                       # blank -> each post is named after the robot
+  upload_clip: true
+
+# Robots only need ip (+ optional per-robot channel/username overrides).
+robots:
+  - name: "robot-a"
+    ip: "169.254.1.2"
+  - name: "robot-b"
+    ip: "169.254.1.3"
+    # channel: "robot-b-alerts"     # optional per-robot channel override
+    # username: "robot-b"           # optional per-robot display name override
