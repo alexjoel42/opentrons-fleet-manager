@@ -346,6 +346,11 @@ class SlackNotifier:
         self.username = username
         self.upload_clip = upload_clip
         cache_key = (token, channel)
+        self.gemini_api_key = gemini_api_key
+        self.channel_id = self._channel_id_from_name(channel)
+        if self.channel_id is None:
+            log.warning("Slack channel '%s' not found (file upload may fail); "
+                        "is the bot invited to it?", channel)
         if cache_key not in SlackNotifier._channel_id_cache:
             SlackNotifier._channel_id_cache[cache_key] = self._channel_id_from_name(channel)
             if SlackNotifier._channel_id_cache[cache_key] is None:
