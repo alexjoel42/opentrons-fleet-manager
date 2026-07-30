@@ -166,7 +166,7 @@ def analyze_video(
     for attempt in range(1, _GENERATE_MAX_ATTEMPTS + 1):
         try:
             response = client.models.generate_content(
-                model="gemini-3.5-flash",
+                model="gemini-3.6-flash",
                 contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -175,8 +175,6 @@ def analyze_video(
             )
             return response.text
         except errors.ServerError as exc:
-            # 5xx (e.g. 503 UNAVAILABLE "high demand") is transient. The video is
-            # already uploaded, so retry only the model call after a short pause.
             if attempt == _GENERATE_MAX_ATTEMPTS:
                 raise
             sleep_s = _GENERATE_RETRY_BASE_SLEEP * 2 ** (attempt - 1)
