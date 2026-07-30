@@ -57,6 +57,8 @@ ACTIVE_STATUSES = {
     "stop-requested",
 }
 
+STARTED_STATUSES = {"running"}
+
 ERROR_STATUSES = {
     "awaiting-recovery",
     "awaiting-recovery-paused",
@@ -982,7 +984,16 @@ class RunLifecycle:
         status = run.get("status", "")
 
         is_new_run = self.run_state is None or self.run_state.run_id != run_id
-        if status != "idle" and is_new_run:
+        if is_new_run:
+            # Now we fully rely on running status to start runs
+            # removing old glitch when cancelling runs in start page
+            if status not in STARTED_STATUSES:
+                if self.run_state is not None:
+                    self.recorder.stop()
+                    self.recorder.cleanup()
+                    self.run_state = None
+                return
+
             self.recorder.stop()
             self.recorder.cleanup()
             self.supervisor.reset_health()
@@ -990,14 +1001,13 @@ class RunLifecycle:
             is_startup = not first_poll_done
             existing_errors = {e.get("id") for e in run.get("errors", []) if e.get("id")}
             is_recovering = status in ERROR_STATUSES
-            is_failed = status == "failed"
 
             self.run_state = RunState(
                 run_id=run_id,
                 reported_error_ids=existing_errors if is_startup else set(),
                 recovery_reported=is_recovering if is_startup else False,
                 in_recovery=is_recovering,
-                failed_reported=is_failed if is_startup else False,
+                failed_reported=False,
             )
 
             log.info(
