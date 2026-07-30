@@ -260,7 +260,7 @@ def make_plot(json_path: Path) -> None:
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     fig, ax = plt.subplots()
-    ax.plot(df["timestamp"], df["memory_percent_used"])
+    ax.plot(df["timestamp"], df["memory_percent_used"], lw=0.5)
     ax.set_title("Used Memory Over Time")
     ax.set_xlabel("Time")
     ax.set_ylabel("Memory Usage (%)")
