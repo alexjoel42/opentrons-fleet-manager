@@ -1,0 +1,86 @@
+{
+  "name": "Robot",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Robot name fetched from Opentrons API"
+    },
+    "ip_address": {
+      "type": "string",
+      "description": "IP address of the robot"
+    },
+    "serial_number": {
+      "type": "string",
+      "description": "Robot serial number"
+    },
+    "last_health_check": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last time health was checked"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "online",
+        "offline",
+        "error"
+      ],
+      "default": "offline",
+      "description": "Current robot status"
+    },
+    "board_name": {
+      "type": "string",
+      "description": "Name of the board/group this robot belongs to"
+    }
+  },
+  "required": [
+    "ip_address",
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "id": {
+          "$ne": null
+        }
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by": "{{user.email}}"
+        },
+        {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      ]
+    }
+  }
+}
