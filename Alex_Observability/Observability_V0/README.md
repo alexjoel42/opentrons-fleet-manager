@@ -71,11 +71,22 @@ Copy `.env.example` to `.env`. For local dev with the Vite proxy, leave **`VITE_
 
 Run the stack on a Pi with systemd (API on boot), nginx (static `dist/` + `/api` proxy), and **`http://<hostname>.local`**: **[docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md)**.
 
+Take a USB snapshot of the run archive, or move the live database onto a drive that stays plugged in: **[docs/usb/README.md](docs/usb/README.md)**.
+
 ---
 
 ## Deployment overview
 
 See **[docs/DEPLOY.md](docs/DEPLOY.md)** (local + Pi only).
+
+---
+
+## Localization
+
+The header language selector supports English and Simplified Chinese. Mandarin reviewers can update
+`public/locales/zh-CN.json` by following **[docs/localization/README.md](docs/localization/README.md)**.
+
+Validate both catalogs with `npm run locales:check`.
 
 ---
 

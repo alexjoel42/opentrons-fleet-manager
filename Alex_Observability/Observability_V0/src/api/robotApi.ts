@@ -87,21 +87,21 @@ export async function releaseRobotCheckout(ip: string): Promise<{ ip: string; re
 
 export interface FleetErrorTicketResponse {
   ip: string;
-  title: string;
+  runId: string;
   project_key: string;
-  stdout: string;
-  stderr: string;
+  issue_key: string;
+  issue_url: string;
 }
 
-/** Create a Jira error ticket for one robot via abr_testing (backend subprocess). */
+/** Create a Jira issue for one run and attach that run's troubleshooting zip. */
 export async function createRobotFleetErrorTicket(
   ip: string,
-  title: string,
+  runId: string,
 ): Promise<FleetErrorTicketResponse> {
   const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/fleet-error-ticket`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: title.trim() }),
+    body: JSON.stringify({ runId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(getTicketCommandErrorFromResponse(data, res.statusText));
@@ -321,12 +321,15 @@ export interface RunListItem {
   hasEverEnteredErrorRecovery?: boolean;
 }
 
-/** Prefer protocol file name (main) over protocolId/id for display. */
-export function getRunDisplayName(run: RunListItem): string {
+/** Main protocol file name from a run list item, or null when the list payload omits it. */
+export function runMainProtocolFileName(run: RunListItem): string | null {
   const mainFile = run.data?.files?.find((f) => f.role === 'main');
-  if (mainFile?.name?.trim()) return mainFile.name.trim();
-  if (run.protocolId?.trim()) return run.protocolId.trim();
-  return run.id;
+  return mainFile?.name?.trim() || null;
+}
+
+/** Protocol file name for display; never falls back to a protocol or run UUID. */
+export function getRunDisplayName(run: RunListItem, unknownProtocol = 'Unknown protocol'): string {
+  return runMainProtocolFileName(run) ?? unknownProtocol;
 }
 
 /** Main `.py` file name from a single-run payload (`data.data.files` or `data.files`) only — no extra HTTP. */
@@ -405,6 +408,40 @@ export async function fetchRobotRunProtocol(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
   return data as RunProtocolResponse;
+}
+
+/** One run preserved in the Pi's SQLite archive (survives robot resets). */
+export interface ArchivedRun {
+  robot_ip: string;
+  run_id: string;
+  robot_name: string | null;
+  robot_serial: string | null;
+  status: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  protocol_id: string | null;
+  protocol_file_name: string | null;
+  errors: Array<{ errorCode?: string; errorType?: string; detail?: string }>;
+  inline_note: string | null;
+  detail_note: string | null;
+  first_archived_at: string;
+  last_archived_at: string;
+}
+
+export interface RunArchiveResponse {
+  ip: string;
+  runs: ArchivedRun[];
+  /** Last successful fleet-wide archive pass (ISO), or null if none yet. */
+  last_archived_at: string | null;
+}
+
+export async function fetchRunArchive(ip: string): Promise<RunArchiveResponse> {
+  const res = await fetch(`${BASE}/api/robots/${encodeURIComponent(ip)}/run-archive`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(getErrorFromResponse(data, res.statusText));
+  return data as RunArchiveResponse;
 }
 
 /** Preliminary check: validate run detail and troubleshooting zip are available for this run. */

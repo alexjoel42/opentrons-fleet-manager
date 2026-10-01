@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export type NotificationType = 'paused' | 'error';
 
@@ -74,6 +75,7 @@ export function useNotifications() {
 }
 
 export function NotificationToasts() {
+  const { t } = useTranslation();
   const { notifications, dismissNotification } = useNotifications();
 
   if (notifications.length === 0) return null;
@@ -82,7 +84,7 @@ export function NotificationToasts() {
     <div
       className="pointer-events-none fixed bottom-6 right-6 z-50 flex max-h-[80vh] w-full max-w-[420px] flex-col gap-2 sm:pointer-events-auto"
       role="region"
-      aria-label="Notifications"
+      aria-label={t('notifications.region')}
     >
       {notifications.map((n) => (
         <div
@@ -99,7 +101,7 @@ export function NotificationToasts() {
             <button
               type="button"
               onClick={() => dismissNotification(n.id)}
-              aria-label="Dismiss notification"
+              aria-label={t('notifications.dismiss')}
               className="shrink-0 rounded p-1 text-muted-foreground hover:bg-black/10 hover:text-foreground"
             >
               ×
@@ -108,7 +110,7 @@ export function NotificationToasts() {
           <p className="text-sm text-muted-foreground">{n.message}</p>
           {(n.robotSerial || n.robotIp) && (
             <p className="font-mono text-xs text-muted-foreground">
-              Robot{n.robotSerial ? ` ${n.robotSerial}` : ''}
+              {t('common.robot')}{n.robotSerial ? ` ${n.robotSerial}` : ''}
               {n.robotIp ? ` · ${n.robotIp}` : ''}
             </p>
           )}

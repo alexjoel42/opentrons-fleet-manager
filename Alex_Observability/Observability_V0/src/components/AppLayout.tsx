@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { FleetStatusLegendBar } from './FleetStatusLegendBar';
 
 const OPENTRONS_LOGO_PATH = '/opentrons-logo.svg';
 
 export function AppLayout() {
+  const { t, i18n } = useTranslation();
   const [logoError, setLogoError] = useState(false);
   const location = useLocation();
 
@@ -19,7 +21,7 @@ export function AppLayout() {
             <Link
               to="/"
               className="flex shrink-0 items-center gap-2 text-foreground no-underline transition-opacity hover:opacity-90"
-              aria-label="Opentrons Fleet home"
+              aria-label={t('nav.ariaHome')}
             >
               {logoError ? (
                 <span className="font-display text-xl font-normal tracking-tight text-foreground">
@@ -33,11 +35,11 @@ export function AppLayout() {
                   onError={() => setLogoError(true)}
                 />
               )}
-              <span className="font-sans text-base font-semibold text-muted-foreground">Fleet</span>
+              <span className="font-sans text-base font-semibold text-muted-foreground">{t('dashboard.fleet')}</span>
             </Link>
             <FleetStatusLegendBar className="max-w-full lg:max-w-[min(100%,42rem)]" />
           </div>
-          <nav className="flex shrink-0 flex-wrap items-center gap-1" aria-label="Main">
+          <nav className="flex shrink-0 flex-wrap items-center gap-1" aria-label={t('nav.ariaMain')}>
             <Link
               to="/"
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
@@ -46,7 +48,7 @@ export function AppLayout() {
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
-              Setup
+              {t('nav.setup')}
             </Link>
             <Link
               to="/dashboard"
@@ -56,8 +58,20 @@ export function AppLayout() {
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
-              Dashboard
+              {t('nav.dashboard')}
             </Link>
+            <label className="ml-1">
+              <span className="sr-only">{t('nav.language')}</span>
+              <select
+                value={i18n.resolvedLanguage === 'zh-CN' ? 'zh-CN' : 'en'}
+                onChange={(event) => void i18n.changeLanguage(event.target.value)}
+                aria-label={t('nav.language')}
+                className="rounded-lg border border-border bg-card px-2 py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="en">English</option>
+                <option value="zh-CN">中文（简体）</option>
+              </select>
+            </label>
           </nav>
         </div>
       </header>

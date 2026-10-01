@@ -54,8 +54,8 @@
   --color-fleet-error-bg: rgba(234, 88, 12, 0.08);
 
   /* Typography — Public Sans for UI (Helix) */
-  --font-display: "Calistoga", Georgia, serif;
-  --font-sans: "Public Sans", "Inter", system-ui, sans-serif;
+  --font-display: "Calistoga", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Georgia, serif;
+  --font-sans: "Public Sans", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
   /* Shadows */

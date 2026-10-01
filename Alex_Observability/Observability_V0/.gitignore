@@ -13,6 +13,7 @@ backend/robot_ips.json
 backend/robot_notes.json
 backend/robot_dashboards.json
 backend/robot_checkouts.json
+backend/run_archive.db*
 dist
 dist-ssr
 agent/dist

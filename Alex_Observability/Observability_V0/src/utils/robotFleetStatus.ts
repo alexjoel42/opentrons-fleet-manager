@@ -112,6 +112,19 @@ export const FLEET_STATUS_LABELS: Record<RobotFleetVisualStatus, string> = {
   error: 'Robot error',
 };
 
+export const FLEET_STATUS_TRANSLATION_KEYS: Record<RobotFleetVisualStatus, string> = {
+  loading: 'status.loading',
+  unreachable: 'status.unreachable',
+  idle: 'status.idle',
+  running: 'status.running',
+  paused: 'status.paused',
+  failed: 'status.failed',
+  'awaiting-recovery': 'status.awaitingRecovery',
+  succeeded: 'status.succeeded',
+  stopped: 'status.stopped',
+  error: 'status.error',
+};
+
 /** Rows under “Check first” in the status summary table. */
 export const FLEET_ATTENTION_TABLE_ORDER: RobotFleetVisualStatus[] = [
   'failed',
@@ -157,17 +170,17 @@ export function fleetAttentionCount(
 }
 
 /** Ordered filters for the fleet toolbar (exclude loading from filter list — use "all"). */
-export const FLEET_FILTER_OPTIONS: Array<{ value: FleetStatusFilter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'attention', label: 'Need attention' },
-  { value: 'loading', label: 'Loading' },
-  { value: 'idle', label: 'Idle' },
-  { value: 'running', label: 'Running' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'awaiting-recovery', label: 'Awaiting recovery' },
-  { value: 'failed', label: 'Failed' },
-  { value: 'succeeded', label: 'Succeeded' },
-  { value: 'stopped', label: 'Stopped' },
-  { value: 'error', label: 'Robot error' },
-  { value: 'unreachable', label: 'Unreachable' },
+export const FLEET_FILTER_OPTIONS: Array<{ value: FleetStatusFilter; translationKey: string }> = [
+  { value: 'all', translationKey: 'common.all' },
+  { value: 'attention', translationKey: 'status.attention' },
+  { value: 'loading', translationKey: FLEET_STATUS_TRANSLATION_KEYS.loading },
+  { value: 'idle', translationKey: FLEET_STATUS_TRANSLATION_KEYS.idle },
+  { value: 'running', translationKey: FLEET_STATUS_TRANSLATION_KEYS.running },
+  { value: 'paused', translationKey: FLEET_STATUS_TRANSLATION_KEYS.paused },
+  { value: 'awaiting-recovery', translationKey: FLEET_STATUS_TRANSLATION_KEYS['awaiting-recovery'] },
+  { value: 'failed', translationKey: FLEET_STATUS_TRANSLATION_KEYS.failed },
+  { value: 'succeeded', translationKey: FLEET_STATUS_TRANSLATION_KEYS.succeeded },
+  { value: 'stopped', translationKey: FLEET_STATUS_TRANSLATION_KEYS.stopped },
+  { value: 'error', translationKey: FLEET_STATUS_TRANSLATION_KEYS.error },
+  { value: 'unreachable', translationKey: FLEET_STATUS_TRANSLATION_KEYS.unreachable },
 ];

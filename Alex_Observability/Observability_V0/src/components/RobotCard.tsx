@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { useRobotHealth } from '../hooks/useRobotHealth';
 import { useRobotModules } from '../hooks/useRobotModules';
 import { useRobotPipettes } from '../hooks/useRobotPipettes';
@@ -9,7 +10,7 @@ import { useNotifications } from '../lib/NotificationContext';
 import { formatPipettes, formatModules, orDash } from '../utils/robotFormat';
 import { telemetryApiVersion, telemetryLastFailedRunInfo } from '../utils/telemetryHealth';
 import {
-  FLEET_STATUS_LABELS,
+  FLEET_STATUS_TRANSLATION_KEYS,
   deriveRobotFleetVisualStatus,
   rawRobotStatusDiffersFromLabel,
 } from '../utils/robotFleetStatus';
@@ -33,50 +34,9 @@ function triggerZipDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Selectable command output inside a card link; includes one-click copy. */
-function TicketOutputBlock({ text, variant }: { text: string; variant: 'error' | 'success' }) {
-  const [copied, setCopied] = useState(false);
-  const tone =
-    variant === 'error'
-      ? 'bg-error/10 text-error'
-      : 'bg-background text-muted-foreground';
-
-  const stopLink = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    stopLink(e);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* ignore — user can still select manually */
-    }
-  };
-
-  return (
-    <div className="mt-2" onMouseDown={stopLink} onClick={stopLink}>
-      <div className="mb-1 flex justify-end">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="rounded-md border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
-        >
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
-      <pre
-        className={`data-block max-h-[min(320px,50vh)] w-full min-w-0 cursor-text select-text overflow-auto whitespace-pre-wrap break-all rounded-md p-2 text-xs leading-relaxed ${tone}`}
-        role={variant === 'error' ? 'alert' : 'status'}
-        tabIndex={0}
-      >
-        {text}
-      </pre>
-    </div>
-  );
+function stopCardLink(e: React.MouseEvent) {
+  e.preventDefault();
+  e.stopPropagation();
 }
 
 /** Keyed by `ip` + server notes so local draft resets when saved notes load from the API (no sync effect). */
@@ -91,6 +51,7 @@ function RobotNotesEditor({
   onSaveRobotNotes: (text: string) => void;
   isSavingRobotNotes?: boolean;
 }) {
+  const { t } = useTranslation();
   const [notesDraft, setNotesDraft] = useState(robotNotes ?? '');
   return (
     <div
@@ -101,15 +62,15 @@ function RobotNotesEditor({
       }}
     >
       <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Notes
+        {t('card.notes')}
       </span>
       <textarea
         value={notesDraft}
         onChange={(e) => setNotesDraft(e.target.value)}
         rows={3}
-        aria-label={`Notes for robot ${ip}`}
+        aria-label={t('card.notesAria', { ip })}
         className="w-full resize-y rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        placeholder="Calibration, quirks, who to ping…"
+        placeholder={t('card.notesPlaceholder')}
       />
       <button
         type="button"
@@ -122,7 +83,7 @@ function RobotNotesEditor({
         disabled={isSavingRobotNotes}
         className="mt-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
       >
-        {isSavingRobotNotes ? 'Saving…' : 'Save notes'}
+        {isSavingRobotNotes ? t('common.saving') : t('card.saveNotes')}
       </button>
     </div>
   );
@@ -168,11 +129,11 @@ export function RobotCardView({
   checkout,
   enableCheckout = false,
 }: RobotCardViewProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { addNotification } = useNotifications();
   const [zipPending, setZipPending] = useState(false);
   const [operatorName, setOperatorName] = useState(defaultNotesOperatorName);
-  const [ticketTitle, setTicketTitle] = useState('');
   const lastNotifiedRunId = useRef<string | null>(null);
   const lastNotifiedPaused = useRef(false);
   const lastNotifiedError = useRef(false);
@@ -207,8 +168,8 @@ export function RobotCardView({
       lastNotifiedPaused.current = true;
       addNotification({
         type: 'paused',
-        title: 'Run paused',
-        message: `A run is paused on this robot.`,
+        title: t('card.runPausedTitle'),
+        message: t('card.runPausedMessage'),
         robotSerial: serial ?? null,
         robotIp: ip,
       });
@@ -216,16 +177,16 @@ export function RobotCardView({
     if (hasRunError && !lastNotifiedError.current) {
       lastNotifiedError.current = true;
       const firstError = currentRun.errors?.[0];
-      const detail = firstError?.detail ?? firstError?.errorType ?? 'Run error';
+      const detail = firstError?.detail ?? firstError?.errorType ?? t('card.runError');
       addNotification({
         type: 'error',
-        title: 'Run error',
+        title: t('card.runError'),
         message: `${detail}`,
         robotSerial: serial ?? null,
         robotIp: ip,
       });
     }
-  }, [currentRun, isPaused, hasRunError, serial, ip, addNotification]);
+  }, [currentRun, isPaused, hasRunError, serial, ip, addNotification, t]);
 
   const visualStatus = deriveRobotFleetVisualStatus({
     fleetError: fleetError ?? null,
@@ -239,9 +200,9 @@ export function RobotCardView({
   if (fleetError) {
     message = fleetError;
   } else if (healthLoading && !healthData) {
-    message = 'Loading…';
+    message = t('common.loading');
   } else if (healthError && healthErr) {
-    message = healthErr instanceof Error ? healthErr.message : 'Error';
+    message = healthErr instanceof Error ? healthErr.message : t('common.error');
   } else if (healthData?.status) {
     message = String(healthData.status);
   }
@@ -249,7 +210,7 @@ export function RobotCardView({
   const robotName = orDash(healthData?.name);
   const titleText = robotName !== '—' ? `${robotName} · ${ip}` : ip;
   const softwareVersion = telemetryApiVersion(healthData ?? null);
-  const lastFailedInfo = telemetryLastFailedRunInfo(runsData ?? null);
+  const lastFailedInfo = telemetryLastFailedRunInfo(runsData ?? null, t('common.unknownProtocol'));
   const pipetteLines = pipettesData != null ? formatPipettes(pipettesData) : [];
   const moduleLines = Array.isArray(modulesData) ? formatModules(modulesData) : [];
 
@@ -265,9 +226,9 @@ export function RobotCardView({
 
   const checkoutMutation = useMutation({
     mutationFn: () => {
-      const t = operatorName.trim();
-      if (!t) throw new Error('Enter your name to sign in');
-      return checkoutRobot(ip, t);
+      const operator = operatorName.trim();
+      if (!operator) throw new Error(t('card.enterName'));
+      return checkoutRobot(ip, operator);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fleet', 'snapshot'] });
@@ -285,9 +246,8 @@ export function RobotCardView({
 
   const ticketMutation = useMutation({
     mutationFn: () => {
-      const t = ticketTitle.trim();
-      if (!t) throw new Error('Enter a ticket title');
-      return createRobotFleetErrorTicket(ip, t);
+      if (!currentRun?.id) throw new Error(t('card.noRunToAttach'));
+      return createRobotFleetErrorTicket(ip, currentRun.id);
     },
   });
 
@@ -322,10 +282,10 @@ export function RobotCardView({
                 e.stopPropagation();
                 onRemove();
               }}
-              aria-label={`Remove robot ${ip}`}
+              aria-label={t('card.removeAria', { ip })}
               className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
-              Remove
+              {t('common.remove')}
             </button>
           )}
         </div>
@@ -333,9 +293,9 @@ export function RobotCardView({
           <span
             className="fleet-status-pill"
             data-fleet-status={visualStatus}
-            aria-label={`Status: ${FLEET_STATUS_LABELS[visualStatus]}`}
+            aria-label={t('card.statusAria', { status: t(FLEET_STATUS_TRANSLATION_KEYS[visualStatus]) })}
           >
-            {FLEET_STATUS_LABELS[visualStatus]}
+            {t(FLEET_STATUS_TRANSLATION_KEYS[visualStatus])}
           </span>
           {message &&
             !fleetError &&
@@ -354,62 +314,9 @@ export function RobotCardView({
             </p>
           )}
           {softwareVersion ? (
-            <span className="text-xs text-muted-foreground" title="Robot software version (health.api_version)">
-              Software: {softwareVersion}
+            <span className="text-xs text-muted-foreground" title={t('card.softwareTitle')}>
+              {t('card.software', { version: softwareVersion })}
             </span>
-          ) : null}
-        </div>
-        <div
-          className="mb-4 min-w-0 rounded-lg border border-border bg-muted/25 p-3"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-          }}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-        >
-          <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Error ticket
-          </span>
-          <label htmlFor={`ticket-title-${ip}`} className="sr-only">
-            Jira ticket title
-          </label>
-          <input
-            id={`ticket-title-${ip}`}
-            type="text"
-            value={ticketTitle}
-            onChange={(e) => setTicketTitle(e.target.value)}
-            placeholder="Ticket title"
-            disabled={isUnreachable}
-            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          />
-          <button
-            type="button"
-            disabled={ticketMutation.isPending || !ticketTitle.trim() || isUnreachable}
-            title={isUnreachable ? 'Robot is unreachable' : undefined}
-            onClick={() => ticketMutation.mutate()}
-            className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {ticketMutation.isPending ? 'Creating ticket…' : 'Create error ticket'}
-          </button>
-          {ticketMutation.isError && (
-            <TicketOutputBlock
-              variant="error"
-              text={
-                ticketMutation.error instanceof Error
-                  ? ticketMutation.error.message
-                  : 'Ticket creation failed'
-              }
-            />
-          )}
-          {ticketMutation.isSuccess && ticketMutation.data.stdout.trim() ? (
-            <TicketOutputBlock variant="success" text={ticketMutation.data.stdout.trim()} />
-          ) : null}
-          {ticketMutation.isSuccess && !ticketMutation.data.stdout.trim() ? (
-            <p className="mt-2 text-xs text-muted-foreground" role="status">
-              Ticket created.
-            </p>
           ) : null}
         </div>
         {enableCheckout && (
@@ -421,39 +328,39 @@ export function RobotCardView({
             }}
           >
             <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Session
+              {t('card.session')}
             </span>
             {checkout ? (
               <div className="space-y-2">
                 <p className="text-sm text-foreground">
-                  <span className="font-medium">Signed in:</span> {checkout.operator}
+                  <span className="font-medium">{t('card.signedIn')}</span> {checkout.operator}
                 </p>
-                <p className="text-xs text-muted-foreground">Since {checkout.since}</p>
+                <p className="text-xs text-muted-foreground">{t('card.since', { date: checkout.since })}</p>
                 <button
                   type="button"
                   disabled={releaseMutation.isPending}
                   onClick={() => releaseMutation.mutate()}
                   className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
                 >
-                  {releaseMutation.isPending ? 'Signing out…' : 'Sign out'}
+                  {releaseMutation.isPending ? t('card.signingOut') : t('card.signOut')}
                 </button>
                 {releaseMutation.isError && (
                   <p className="text-xs text-error" role="alert">
-                    {releaseMutation.error instanceof Error ? releaseMutation.error.message : 'Release failed'}
+                    {releaseMutation.error instanceof Error ? releaseMutation.error.message : t('card.releaseFailed')}
                   </p>
                 )}
               </div>
             ) : (
               <div className="space-y-2">
                 <label htmlFor={`operator-${ip}`} className="sr-only">
-                  Your name
+                  {t('card.yourName')}
                 </label>
                 <input
                   id={`operator-${ip}`}
                   type="text"
                   value={operatorName}
                   onChange={(e) => setOperatorName(e.target.value)}
-                  placeholder="Your name"
+                  placeholder={t('card.yourName')}
                   autoComplete="name"
                   className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
@@ -463,13 +370,13 @@ export function RobotCardView({
                   onClick={() => checkoutMutation.mutate()}
                   className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-95 disabled:opacity-60"
                 >
-                  {checkoutMutation.isPending ? 'Signing in…' : 'Sign in'}
+                  {checkoutMutation.isPending ? t('card.signingIn') : t('card.signIn')}
                 </button>
                 {checkoutMutation.isError && (
                   <p className="text-xs text-error" role="alert">
                     {checkoutMutation.error instanceof Error
                       ? checkoutMutation.error.message
-                      : 'Sign-in failed'}
+                      : t('card.signInFailed')}
                   </p>
                 )}
               </div>
@@ -478,13 +385,13 @@ export function RobotCardView({
         )}
         <div className="mb-4">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Run
+            {t('common.run')}
           </span>
           {currentRun ? (
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="min-w-0 flex-1 text-sm text-foreground">
-                <span className="text-muted-foreground">Current: </span>
-                {getRunDisplayName(currentRun)}
+                <span className="text-muted-foreground">{t('card.current')} </span>
+                {getRunDisplayName(currentRun, t('common.unknownProtocol'))}
                 <span className="text-muted-foreground"> ({currentRun.status ?? '—'})</span>
               </p>
               <Link
@@ -492,18 +399,18 @@ export function RobotCardView({
                 className="shrink-0 rounded-lg border border-accent/35 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 onClick={(e) => e.stopPropagation()}
               >
-                View
+                {t('common.view')}
               </Link>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No current run</p>
+            <p className="text-sm text-muted-foreground">{t('card.noCurrentRun')}</p>
           )}
           {lastFailedInfo ? (
             <div className="mt-3 rounded-lg border border-border/90 bg-muted/25 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-fleet-failed-border)]">
-                    Last failed
+                    {t('card.lastFailed')}
                   </p>
                   <p className="mt-0.5 text-sm font-medium leading-snug text-foreground">
                     {lastFailedInfo.displayName}
@@ -525,22 +432,60 @@ export function RobotCardView({
                   className="shrink-0 rounded-lg border border-accent/35 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  View
+                  {t('common.view')}
                 </Link>
               </div>
             </div>
           ) : null}
-          {hasRunError && (
-            <button
-              type="button"
-              onClick={handleDownloadZip}
-              disabled={zipPending}
-              aria-label="Download troubleshooting zip"
-              className="mt-2 inline-block rounded-lg border border-accent bg-transparent px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          {(hasRunError || currentRun?.id) && (
+            <div
+              className="mt-2 flex flex-wrap gap-2"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={stopCardLink}
             >
-              {zipPending ? 'Downloading…' : 'Download troubleshooting zip'}
-            </button>
+              {hasRunError && (
+                <button
+                  type="button"
+                  onClick={handleDownloadZip}
+                  disabled={zipPending}
+                  aria-label={t('common.downloadTroubleshootingZip')}
+                  className="inline-block rounded-lg border border-accent bg-transparent px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  {zipPending ? t('common.downloading') : t('common.downloadTroubleshootingZip')}
+                </button>
+              )}
+              {currentRun?.id && (
+                <button
+                  type="button"
+                  onClick={() => ticketMutation.mutate()}
+                  disabled={ticketMutation.isPending || isUnreachable}
+                  className="inline-block rounded-lg border border-accent bg-transparent px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  {ticketMutation.isPending ? t('common.creatingTicket') : t('common.makeJiraTicket')}
+                </button>
+              )}
+            </div>
           )}
+          {ticketMutation.isError && (
+            <p className="mt-2 text-xs text-error" role="alert" onClick={stopCardLink}>
+              {ticketMutation.error instanceof Error
+                ? ticketMutation.error.message
+                : t('common.ticketCreationFailed')}
+            </p>
+          )}
+          {ticketMutation.isSuccess ? (
+            <p className="mt-2 text-xs text-muted-foreground" role="status" onClick={stopCardLink}>
+              <a
+                href={ticketMutation.data.issue_url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-accent underline"
+                onClick={stopCardLink}
+              >
+                {ticketMutation.data.issue_key}
+              </a>
+            </p>
+          ) : null}
         </div>
         {onSaveRobotNotes != null && (
           <RobotNotesEditor
@@ -554,7 +499,7 @@ export function RobotCardView({
         {pipetteLines.length > 0 && (
           <div className="mb-4">
             <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Pipettes
+              {t('robotDetail.pipettes')}
             </span>
             <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
               {pipetteLines.map((line, i) => (
@@ -566,7 +511,7 @@ export function RobotCardView({
         {moduleLines.length > 0 && (
           <div className="mb-4">
             <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Modules
+              {t('robotDetail.modules')}
             </span>
             <ul className="list-inside list-disc space-y-0.5 text-sm text-muted-foreground">
               {moduleLines.map((line, i) => (
@@ -577,7 +522,7 @@ export function RobotCardView({
         )}
         {isError && (
           <span className="mt-2 inline-block text-sm font-medium text-accent group-hover:underline">
-            View details →
+            {t('card.viewDetails')}
           </span>
         )}
       </div>

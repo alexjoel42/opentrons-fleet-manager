@@ -16,20 +16,21 @@ import logging
 import ipaddress
 import json
 import os
-import subprocess
 import sys
 import threading
 import zipfile
+from contextlib import asynccontextmanager
 from urllib.parse import quote
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from note_compliance import local_operator_name_from_request, stamp_note_body
+from run_archive import LAST_SUCCESS_KEY, RunArchive, archive_fleet, is_archive_due, run_to_record
 
 _log = logging.getLogger(__name__)
 
@@ -38,12 +39,12 @@ DEFAULT_PORT = 31950
 # Default request timeout in seconds for robot HTTP calls.
 DEFAULT_TIMEOUT = 10.0
 
-# Fleet error ticket subprocess (abr_testing.data_collection.robot_fleet_error).
+# Jira tickets use abr_testing.automation.jira_tool (credentials live in ABR_ERRORS_DIR).
 ABR_REPO_ROOT = Path(os.path.expanduser(os.environ.get("ABR_REPO_ROOT", "."))).resolve()
 ABR_PYTHONPATH = os.environ.get("ABR_PYTHONPATH", "~/ticket-creation/abr-testing")
 ABR_ERRORS_DIR = os.environ.get("ABR_ERRORS_DIR", "~/ticket-creation/Errors")
-ABR_PYTHON = os.environ.get("ABR_PYTHON", sys.executable)
-ABR_TICKET_TIMEOUT = float(os.environ.get("ABR_TICKET_TIMEOUT", "300"))
+
+
 class BaseRobot:
     """
     Client for querying Opentrons robots over the HTTP API.
@@ -383,6 +384,7 @@ class BaseRobot:
         log_identifier: str,
         scheme: str | None = None,
         port: int | None = None,
+        timeout: float | None = None,
     ) -> str | None:
         """Fetch a single log file from GET /logs/{log_identifier} with format=text.
 
@@ -401,7 +403,7 @@ class BaseRobot:
                 url,
                 headers={**self._headers, "Accept": "text/plain"},
                 params={"format": "text"},
-                timeout=self.timeout,
+                timeout=self.timeout if timeout is None else timeout,
             )
             if response.status_code == 404:
                 return None
@@ -515,7 +517,32 @@ class BaseRobot:
             return None
 
 
-app = FastAPI()
+RUN_ARCHIVE_CHECK_SECONDS = 3600
+RUN_ARCHIVE_STARTUP_DELAY_SECONDS = 60
+
+
+async def _run_archive_loop() -> None:
+    """Hourly check; archives the fleet when the last successful pass is 24h+ old (catches up after restarts)."""
+    await asyncio.sleep(RUN_ARCHIVE_STARTUP_DELAY_SECONDS)
+    while True:
+        try:
+            if is_archive_due(run_archive.get_meta(LAST_SUCCESS_KEY)):
+                await asyncio.to_thread(_run_archive_pass)
+        except Exception:
+            _log.exception("Scheduled run archive pass failed")
+        await asyncio.sleep(RUN_ARCHIVE_CHECK_SECONDS)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    task = asyncio.create_task(_run_archive_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
+app = FastAPI(lifespan=_lifespan)
 
 
 def _normalize_cors_origin(origin: str) -> str:
@@ -718,12 +745,17 @@ def _main_protocol_file_name_from_files_list(files: list[Any]) -> str | None:
 
 
 def _resolve_main_protocol_file_name(ip: str, run: dict[str, Any]) -> str | None:
-    """Resolve the main `.py` file name from run `data.files`, or from GET /protocols/{id} if missing."""
+    """Resolve the main `.py` file name from run `files` / `data.files`, or from GET /protocols/{id} if missing."""
+    file_lists: list[Any] = []
+    if isinstance(run.get("files"), list):
+        file_lists.append(run.get("files"))
     run_data = run.get("data") if isinstance(run.get("data"), dict) else None
-    run_files = (run_data.get("files") or []) if run_data else []
-    name = _main_protocol_file_name_from_files_list(run_files)
-    if name:
-        return name
+    if run_data and isinstance(run_data.get("files"), list):
+        file_lists.append(run_data.get("files"))
+    for run_files in file_lists:
+        name = _main_protocol_file_name_from_files_list(run_files)
+        if name:
+            return name
     protocol_id = run.get("protocolId")
     if not isinstance(protocol_id, str):
         return None
@@ -803,6 +835,15 @@ ROBOT_DASHBOARDS_FILE = Path(__file__).resolve().parent / "robot_dashboards.json
 ROBOT_CHECKOUTS_FILE = Path(__file__).resolve().parent / "robot_checkouts.json"
 # Lock for thread-safe read/write of fleet JSON stores.
 _store_lock = threading.RLock()
+# Persistent run history (survives robot resets and fleet removal).
+RUN_ARCHIVE_DB = Path(
+    os.path.expanduser(
+        os.environ.get("RUN_ARCHIVE_DB") or str(Path(__file__).resolve().parent / "run_archive.db")
+    )
+)
+run_archive = RunArchive(RUN_ARCHIVE_DB)
+# Prevents overlapping fleet passes (scheduled + manual).
+_archive_pass_lock = threading.Lock()
 
 
 def _load_robot_ips() -> list[str]:
@@ -1203,73 +1244,134 @@ def _project_key_for_robot_ip(ip: str) -> str:
         return "RQA"
 
 
+def _jira_tool():
+    """Import abr_testing.automation.jira_tool from ABR_PYTHONPATH without editing that package."""
+    abr_root = str(_abr_path(ABR_PYTHONPATH))
+    if abr_root not in sys.path:
+        sys.path.insert(0, abr_root)
+    from abr_testing.automation import jira_tool  # pyright: ignore[reportMissingImports]
+
+    return jira_tool
+
+
+def _ticket_summary_and_description(robot_name: str, run: dict[str, Any]) -> tuple[str, str]:
+    """Build `{robot}_{runId}_{errorCode}_{errorType}` and the run error text."""
+    run_id = str(run.get("id") or "unknown")
+    errors = run.get("errors") or []
+    err = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else {}
+    error_code = str(err.get("errorCode") or "none")
+    error_type = str(err.get("errorType") or "none")
+    detail = str(err.get("detail") or error_type or "No errors recorded for this run.")
+
+    def _slug(value: str) -> str:
+        return "_".join(value.split()) or "none"
+
+    summary = f"{_slug(robot_name)}_{run_id}_{_slug(error_code)}_{_slug(error_type)}"[:255]
+    return summary, detail
+
+
+def _protocol_file_name(ip: str, run: dict[str, Any]) -> str | None:
+    """Main protocol filename from run or protocol metadata. Does not download the file."""
+    try:
+        return _resolve_main_protocol_file_name(ip, run)
+    except Exception:
+        return None
+
+
+def _load_run_for_ticket(ip: str, run_id: str) -> dict[str, Any]:
+    try:
+        run_response = robot_client.get_run(ip, run_id)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise robot_http_error("Run not found", "RUN_NOT_FOUND", 404)
+        raise robot_http_error(str(e) or "Robot error", "ROBOT_ERROR", e.response.status_code)
+    run = run_response.get("data") if isinstance(run_response, dict) else run_response
+    if not isinstance(run, dict):
+        raise robot_http_error("Run not found", "NOT_FOUND", 404)
+    return run
+
+
 @app.post("/api/robots/{ip}/fleet-error-ticket")
 def create_fleet_error_ticket(ip: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    """Create a Jira error ticket via abr_testing.data_collection.robot_fleet_error."""
+    """Create a Jira issue for one run and attach troubleshooting.zip."""
     validate_ip(ip)
     key = ip.strip()
-    title = (body.get("title") or "").strip()
-    if not title:
+    run_id = (body.get("runId") or "").strip()
+    if not run_id:
         raise HTTPException(
             status_code=400,
-            detail={"error": 'Body must include non-empty "title"', "code": "INVALID_BODY"},
+            detail={"error": 'Body must include non-empty "runId"', "code": "INVALID_BODY"},
         )
-    title = title[:500]
-    project_key = _project_key_for_robot_ip(key)
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(_abr_path(ABR_PYTHONPATH))
-    errors_dir = _abr_path(ABR_ERRORS_DIR)
-    cmd = [
-        ABR_PYTHON,
-        "-m",
-        "abr_testing.data_collection.robot_fleet_error",
-        str(errors_dir),
-        "--ip_address",
-        key,
-        "--project_key",
-        project_key,
-        "--title",
-        title,
-    ]
+    run = _load_run_for_ticket(key, run_id)
+    bundle = _build_troubleshooting_zip(key, run)
+    robot_name = key
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(ABR_REPO_ROOT),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=ABR_TICKET_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=504,
-            detail={"error": "Ticket command timed out", "code": "TICKET_TIMEOUT"},
-        )
+        health = robot_client.get_health(key)
+        name = health.get("name")
+        if name:
+            robot_name = str(name)
+    except Exception as exc:
+        _log.warning("Could not fetch robot name for ticket summary (%s): %s", key, exc)
+    project_key = _project_key_for_robot_name(robot_name if robot_name != key else None)
+    summary, description = _ticket_summary_and_description(robot_name, run)
+    protocol_file_name = _protocol_file_name(key, run)
+    if protocol_file_name:
+        description = f"{description}\n\nProtocol: {protocol_file_name}"
+
+    errors_dir = _abr_path(ABR_ERRORS_DIR)
+    try:
+        errors_dir.mkdir(parents=True, exist_ok=True)
+        zip_path = errors_dir / f"{run_id}_troubleshooting.zip"
+        zip_path.write_bytes(bundle)
     except OSError as e:
         raise HTTPException(
             status_code=500,
-            detail={"error": str(e), "code": "TICKET_SPAWN_FAILED"},
+            detail={"error": str(e), "code": "TICKET_STORAGE_FAILED"},
         )
 
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "Ticket command failed").strip()
+    try:
+        jira_tool = _jira_tool()
+        credentials = jira_tool.get_credentials(str(errors_dir))
+        ticket = jira_tool.JiraTicket(credentials.api_token, credentials.email)
+        issue_key, _issue_url = ticket.create_ticket(
+            summary=summary,
+            description=description,
+            project_key=project_key,
+            assignee_id="-1",
+            issue_type="Bug",
+            priority="Medium",
+            components=[],
+            affects_versions="",
+            labels=[],
+            parent="",
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "Jira credentials file was not found", "code": "JIRA_CREDENTIALS_MISSING"},
+        )
+    except Exception as e:
         raise HTTPException(
             status_code=502,
-            detail={
-                "error": err,
-                "code": "TICKET_COMMAND_FAILED",
-                "stdout": proc.stdout,
-                "stderr": proc.stderr,
-            },
+            detail={"error": str(e), "code": "TICKET_COMMAND_FAILED"},
         )
 
+    if not issue_key:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "Jira did not return an issue key", "code": "TICKET_COMMAND_FAILED"},
+        )
+
+    ticket.post_attachment_to_ticket(issue_key, str(zip_path))
+
+    browse_url = f"https://opentrons.atlassian.net/browse/{issue_key}"
     return {
         "ip": key,
-        "title": title,
+        "runId": run_id,
         "project_key": project_key,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
+        "issue_key": issue_key,
+        "issue_url": browse_url,
     }
 
 
@@ -1386,6 +1488,7 @@ def patch_local_run_notes(
     ip: str,
     run_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     body: dict[str, Any] = Body(...),
 ) -> dict[str, Any]:
     """Update detail and/or inline run notes. Include ``detail`` and/or ``inline`` keys (string or null; empty clears)."""
@@ -1433,7 +1536,82 @@ def patch_local_run_notes(
         store["run_notes"] = run_notes
         _write_notes_store_unlocked(store)
         out_entry = by_ip.get(rid) or {}
+    for slot in ("detail", "inline"):
+        chunk = out_entry.get(slot)
+        if slot in body and isinstance(chunk, dict):
+            run_archive.upsert_note(key, rid, slot, chunk.get("body"))
+    background_tasks.add_task(_archive_single_run, key, rid)
     return {"ip": key, "run_id": rid, "detail": out_entry.get("detail"), "inline": out_entry.get("inline")}
+
+
+def _run_archive_pass() -> dict[str, Any] | None:
+    """Archive every configured robot once. Returns None if a pass is already running."""
+    if not _archive_pass_lock.acquire(blocking=False):
+        return None
+    try:
+        with _store_lock:
+            run_notes = dict(_read_notes_store_unlocked().get("run_notes") or {})
+        result = archive_fleet(
+            run_archive,
+            _load_robot_ips(),
+            fetch_health=robot_client.get_health,
+            fetch_runs=robot_client.get_runs,
+            resolve_protocol_name=_resolve_main_protocol_file_name,
+            run_notes=run_notes,
+        )
+        _log.info(
+            "Run archive pass: %d robots archived, %d skipped",
+            len(result["archived"]),
+            len(result["errors"]),
+        )
+        return result
+    finally:
+        _archive_pass_lock.release()
+
+
+def _archive_single_run(ip: str, run_id: str) -> None:
+    """Best-effort capture of one run's metadata (e.g. right after a note save)."""
+    try:
+        run_response = robot_client.get_run(ip, run_id)
+        run = run_response.get("data") if isinstance(run_response, dict) else None
+        if not isinstance(run, dict):
+            return
+        name = run_archive.known_protocol_names(ip).get(run_id) or _resolve_main_protocol_file_name(ip, run)
+        health = robot_client.get_health(ip)
+        with _store_lock:
+            notes = ((_read_notes_store_unlocked().get("run_notes") or {}).get(ip) or {}).get(run_id)
+        run_archive.upsert_runs(
+            ip,
+            [run_to_record(run, name, notes)],
+            robot_name=health.get("name"),
+            robot_serial=health.get("serial_number"),
+        )
+    except Exception as exc:
+        _log.info("Could not archive run %s on %s: %s", run_id, ip, exc)
+
+
+@app.get("/api/robots/{ip}/run-archive")
+def get_run_archive(ip: str) -> dict[str, Any]:
+    """Archived run history for one robot (newest first), including robots removed from the fleet."""
+    validate_ip(ip)
+    key = ip.strip()
+    return {
+        "ip": key,
+        "runs": run_archive.list_runs(key),
+        "last_archived_at": run_archive.get_meta(LAST_SUCCESS_KEY),
+    }
+
+
+@app.post("/api/run-archive/sync")
+def sync_run_archive() -> dict[str, Any]:
+    """Run one fleet-wide archive pass now (normally runs automatically every 24h)."""
+    result = _run_archive_pass()
+    if result is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "An archive pass is already running", "code": "ARCHIVE_BUSY"},
+        )
+    return result
 
 
 @app.get("/api/robots/{ip}/health")
@@ -1675,8 +1853,13 @@ LOG_IDENTIFIERS = [
     "touchscreen.log",
     "can_bus.log",
     "update_server.log",
-    "combined_api_server.log",
+    "kernel.log",
+    "audit_server.log",
+    "auth_server.log",
+    "remote_access.log",
 ]
+# Large server logs (auth, serial, update) often exceed the default 10s robot timeout.
+LOG_FETCH_TIMEOUT = 60.0
 
 
 def _run_from_list(runs_data: Any) -> dict[str, Any] | None:
@@ -1704,10 +1887,10 @@ def _run_from_list(runs_data: Any) -> dict[str, Any] | None:
 
 
 def _build_troubleshooting_zip(ip: str, run: dict[str, Any]) -> bytes:
-    """Build an in-memory zip with ERROR_SUMMARY.txt, run_log.json, protocol file, and logs/.
+    """Build an in-memory zip with ERROR_SUMMARY.txt, run_log.json, and logs/.
 
-    Fetches robot serial, pipettes, modules, run commands, protocol file, and log files
-    from the robot at ip and assembles them into a single zip payload.
+    ERROR_SUMMARY includes the main protocol file name when metadata is available.
+    The protocol source file is not downloaded.
 
     Args:
         ip: Robot IP or hostname.
@@ -1777,6 +1960,7 @@ def _build_troubleshooting_zip(ip: str, run: dict[str, Any]) -> bytes:
                 lines.append(f"  {model} — Serial: {serial}")
         if not modules:
             lines.append("  None")
+        lines.extend(["", "=== PROTOCOL ===", _protocol_file_name(ip, run) or "N/A"])
         zf.writestr("ERROR_SUMMARY.txt", "\n".join(lines))
 
         # 2. Run log: run payload + commands if available
@@ -1787,34 +1971,9 @@ def _build_troubleshooting_zip(ip: str, run: dict[str, Any]) -> bytes:
             run_log["commands"] = None
         zf.writestr("run_log.json", json.dumps(run_log, indent=2))
 
-        # 3. Protocol file (main Python/source) when available
-        protocol_id = run.get("protocolId") if isinstance(run.get("protocolId"), str) else None
-        if protocol_id:
-            main_file_name: str | None = None
-            try:
-                protocol_response = robot_client.get_protocol(ip, protocol_id)
-                protocol_meta = protocol_response.get("data") if isinstance(protocol_response, dict) else protocol_response
-                if isinstance(protocol_meta, dict):
-                    files = protocol_meta.get("files") or []
-                    for f in files:
-                        if isinstance(f, dict) and f.get("role") == "main":
-                            main_file_name = f.get("name") if isinstance(f.get("name"), str) else None
-                            break
-                    if not main_file_name and files:
-                        first = files[0]
-                        if isinstance(first, dict) and first.get("name"):
-                            main_file_name = first["name"]
-            except Exception:
-                pass
-            if main_file_name:
-                raw = robot_client.get_protocol_file(ip, protocol_id, main_file_name)
-                if raw is not None:
-                    content = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-                    zf.writestr(f"protocol/{main_file_name}", content)
-
-        # 4. All log files under logs/
+        # 3. All log files under logs/
         for log_id in LOG_IDENTIFIERS:
-            content = robot_client.get_log_file(ip, log_id)
+            content = robot_client.get_log_file(ip, log_id, timeout=LOG_FETCH_TIMEOUT)
             if content:
                 zf.writestr(f"logs/{log_id}", content)
     return buf.getvalue()
@@ -1827,7 +1986,7 @@ def get_robot_troubleshooting_zip(
 ) -> Response:
     """Build and return troubleshooting.zip for the robot (optional runId query for specific run).
 
-    Zip contains ERROR_SUMMARY.txt, run_log.json, protocol file if available, and logs/.
+    Zip contains ERROR_SUMMARY.txt, run_log.json, and logs/.
     If runId is omitted, uses current or latest run with errors from GET /runs.
     """
     validate_ip(ip)

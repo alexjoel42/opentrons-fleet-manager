@@ -7,14 +7,18 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
+    "locales:check": "node scripts/check-locales.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
+    "i18next": "^26.4.2",
+    "i18next-http-backend": "^4.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-i18next": "^17.0.15",
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {

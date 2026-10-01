@@ -1,6 +1,7 @@
+import { useTranslation } from 'react-i18next';
 import {
   FLEET_HEADER_LEGEND_ORDER,
-  FLEET_STATUS_LABELS,
+  FLEET_STATUS_TRANSLATION_KEYS,
   type RobotFleetVisualStatus,
 } from '../utils/robotFleetStatus';
 
@@ -12,10 +13,11 @@ type Props = {
  * Color key for the app header — same palette as fleet cards (see `data-fleet-status` in CSS).
  */
 export function FleetStatusLegendBar({ className = '' }: Props) {
+  const { t } = useTranslation();
   return (
     <div
       className={`fleet-status-legend-bar flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 ${className}`}
-      aria-label="Fleet status color key"
+      aria-label={t('summary.caption')}
     >
       {FLEET_HEADER_LEGEND_ORDER.map((s: RobotFleetVisualStatus) => (
         <span
@@ -27,7 +29,7 @@ export function FleetStatusLegendBar({ className = '' }: Props) {
             data-fleet-status={s}
             aria-hidden
           />
-          {FLEET_STATUS_LABELS[s]}
+          {t(FLEET_STATUS_TRANSLATION_KEYS[s])}
         </span>
       ))}
     </div>

@@ -262,4 +262,5 @@ sudo systemctl reload nginx
 ## Related docs
 
 - Deployment overview: [DEPLOY.md](DEPLOY.md)
+- USB snapshot of the run archive: [usb/README.md](usb/README.md)
 - Repo overview: [README.md](../README.md)

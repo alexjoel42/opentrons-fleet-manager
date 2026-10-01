@@ -1,4 +1,5 @@
 import type { RunListItem } from '../api/robotApi';
+import i18n from '../i18n';
 
 /**
  * Best-effort instant for ordering runs on a timeline: `completedAt` → `startedAt` → `createdAt`.
@@ -13,6 +14,28 @@ export function runRecencyTimestampMs(run: RunListItem): number {
     }
   }
   return 0;
+}
+
+/** When the run was run: `startedAt`, falling back to `createdAt`. */
+export function runDateIso(run: { startedAt?: string | null; createdAt?: string | null }): string | null {
+  for (const v of [run.startedAt, run.createdAt]) {
+    if (v != null && String(v).trim() && !Number.isNaN(Date.parse(String(v)))) return String(v);
+  }
+  return null;
+}
+
+/** e.g. `Oct 1, 2026, 2:31 PM` */
+export function formatRunDate(iso: string | null | undefined): string {
+  if (iso == null) return i18n.t('common.unknownDate');
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return i18n.t('common.unknownDate');
+  return d.toLocaleString(i18n.resolvedLanguage, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** Run heading: protocol name and run date, never a UUID. */
+export function formatRunLabel(protocolName: string | null | undefined, dateIso: string | null | undefined): string {
+  const name = protocolName?.trim() || i18n.t('common.unknownProtocol');
+  return `${name} · ${formatRunDate(dateIso)}`;
 }
 
 /** Sort newest-first (API order is not guaranteed). */
@@ -32,13 +55,19 @@ export function runWallClockDurationMs(run: RunListItem): number | null {
 export function formatRunDurationMs(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '—';
   const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec}s`;
+  if (sec < 60) return i18n.t('common.durationSeconds', { count: sec });
   const m = Math.floor(sec / 60);
   const s = sec % 60;
-  if (m < 60) return s === 0 ? `${m}m` : `${m}m ${s}s`;
+  if (m < 60) {
+    return s === 0
+      ? i18n.t('common.durationMinutes', { count: m })
+      : i18n.t('common.durationMinutesSeconds', { minutes: m, seconds: s });
+  }
   const h = Math.floor(m / 60);
   const min = m % 60;
-  return min === 0 ? `${h}h` : `${h}h ${min}m`;
+  return min === 0
+    ? i18n.t('common.durationHours', { count: h })
+    : i18n.t('common.durationHoursMinutes', { hours: h, minutes: min });
 }
 
 export function isRunFailed(run: RunListItem): boolean {

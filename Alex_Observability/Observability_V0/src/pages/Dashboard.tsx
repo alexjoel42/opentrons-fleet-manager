@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { useRobotList, useFleetSnapshot, useDashboards } from '../hooks';
 import { RobotCardView } from '../components/RobotCard';
 import { FleetStatusSummaryTable } from '../components/FleetStatusSummaryTable';
@@ -23,6 +24,8 @@ function assignTableRobotName(
   ip: string,
   snap: FleetSnapshotResponse | undefined,
   fleetLoading: boolean,
+  unreachableLabel: string,
+  loadingLabel: string,
 ): string {
   const row = snap?.robots[ip];
   const err = snap?.errors[ip];
@@ -30,8 +33,8 @@ function assignTableRobotName(
     const name = orDash((row.health as Record<string, unknown>).name);
     if (name !== '—') return name;
   }
-  if (err) return 'Unreachable';
-  if (fleetLoading && !snap) return 'Loading…';
+  if (err) return unreachableLabel;
+  if (fleetLoading && !snap) return loadingLabel;
   return '—';
 }
 
@@ -41,6 +44,7 @@ function isDashboardSlug(s: string): boolean {
 }
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useRobotList();
   const [newIp, setNewIp] = useState('');
@@ -185,7 +189,7 @@ export function Dashboard() {
     fleet.isError && fleet.error instanceof Error
       ? fleet.error.message
       : fleet.isError
-        ? 'Failed to load fleet data'
+        ? t('dashboard.failedFleetData')
         : null;
   const fleetLoading = fleetHasRobots && fleet.isLoading && !snap;
   const fleetFirstLoadFailed = fleetHasRobots && fleet.isError && !snap && ips.length > 0;
@@ -237,7 +241,7 @@ export function Dashboard() {
   if (isLoading) {
     return (
       <div className="py-12 text-center">
-        <p className="text-muted-foreground">Loading robot list…</p>
+        <p className="text-muted-foreground">{t('dashboard.loadingRobotList')}</p>
       </div>
     );
   }
@@ -245,12 +249,14 @@ export function Dashboard() {
   if (isError) {
     return (
       <div className="py-12 text-center">
-        <p className="text-error">Failed to load robots: {error instanceof Error ? error.message : 'Unknown error'}</p>
+        <p className="text-error">
+          {t('dashboard.failedRobots')} {error instanceof Error ? error.message : t('common.unknownError')}
+        </p>
         <p className="mt-4 text-sm text-muted-foreground">
           <Link to="/" className="text-accent hover:underline">
-            Configure robot IP addresses
+            {t('dashboard.configureIps')}
           </Link>{' '}
-          first, and ensure the backend is running (<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">make run-backend</code>).
+          {t('dashboard.ensureBackend')} (<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-sm">make run-backend</code>).
         </p>
       </div>
     );
@@ -263,20 +269,20 @@ export function Dashboard() {
       <div className="mb-8">
         <div className="section-label mb-4">
           <span className="section-label-dot" aria-hidden />
-          <span>Fleet</span>
+          <span>{t('dashboard.fleet')}</span>
         </div>
         <h1 className="font-display text-3xl font-normal tracking-tight text-foreground md:text-4xl">
-          Robot <span className="gradient-text">fleet</span>
+          {t('common.robot')} <span className="gradient-text">{t('dashboard.titleAccent')}</span>
         </h1>
         <p className="mt-2 text-muted-foreground">
           <Link to="/" className="text-accent font-medium hover:underline">
-            Add or change robot IPs
+            {t('dashboard.changeIps')}
           </Link>
         </p>
         <div className="mt-3 h-1 w-16 rounded-full bg-accent/80" aria-hidden />
       </div>
 
-      <section className="mb-10" aria-label="Add robot IP">
+      <section className="mb-10" aria-label={t('setup.addRobotAria')}>
         <form
           onSubmit={handleAdd}
           className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-accent/25 bg-card p-5 shadow-md ring-1 ring-accent/10"
@@ -285,8 +291,8 @@ export function Dashboard() {
             type="text"
             value={newIp}
             onChange={(e) => setNewIp(e.target.value)}
-            placeholder="Robot IP (e.g. 192.0.2.10, ::1, or localhost)"
-            aria-label="Robot IP address"
+            placeholder={t('dashboard.ipPlaceholder')}
+            aria-label={t('setup.ipAria')}
             className="h-12 min-w-[180px] flex-1 rounded-lg border-2 border-accent/20 bg-white px-4 text-foreground placeholder:text-muted-foreground/60 focus:border-accent focus:ring-2 focus:ring-accent/30 focus:ring-offset-2 focus:ring-offset-background"
           />
           <button
@@ -294,43 +300,43 @@ export function Dashboard() {
             disabled={addMutation.isPending}
             className="inline-flex h-12 items-center justify-center rounded-[200px] bg-accent px-6 font-semibold text-[13px] leading-4 text-accent-foreground shadow-sm transition-all duration-200 hover:opacity-95 active:scale-[0.98] disabled:opacity-70"
           >
-            {addMutation.isPending ? 'Adding…' : 'Add robot'}
+            {addMutation.isPending ? t('common.adding') : t('setup.addRobot')}
           </button>
           {addMutation.isError && (
             <span className="w-full text-sm text-error sm:w-auto">
-              {addMutation.error instanceof Error ? addMutation.error.message : 'Add failed'}
+              {addMutation.error instanceof Error ? addMutation.error.message : t('common.addFailed')}
             </span>
           )}
         </form>
       </section>
 
-      <section className="mb-10" aria-label="Import robot IP addresses">
+      <section className="mb-10" aria-label={t('dashboard.importSectionAria')}>
         <ImportRobotIps variant="dashboard" />
       </section>
 
       {ips.length === 0 ? (
         <p className="rounded-lg border-2 border-accent/20 bg-card px-6 py-8 text-center text-muted-foreground">
-          No robots added yet. Enter an IP above to add a robot on your network.
+          {t('dashboard.emptyFleet')}
         </p>
       ) : (
         <>
-          <section className="mb-10" aria-label="Assign robots to dashboards">
+          <section className="mb-10" aria-label={t('dashboard.assignTitle')}>
             <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-              <p className="mb-3 text-sm font-medium text-foreground">Assign robots to dashboards</p>
+              <p className="mb-3 text-sm font-medium text-foreground">{t('dashboard.assignTitle')}</p>
               <p className="mb-4 text-xs text-muted-foreground">
-                Each robot can belong to at most one dashboard (or none). Saving updates everyone using this server.
+                {t('dashboard.assignHelp')}
               </p>
               <div className="mb-4 flex flex-wrap items-end gap-2">
                 <div className="flex min-w-[200px] flex-1 flex-col gap-1">
                   <label htmlFor="new-dash-slug" className="text-xs text-muted-foreground">
-                    New dashboard id
+                    {t('dashboard.newDashboardId')}
                   </label>
                   <input
                     id="new-dash-slug"
                     type="text"
                     value={newSlugInput}
                     onChange={(e) => setNewSlugInput(e.target.value)}
-                    placeholder="e.g. dev, qa, abr"
+                    placeholder={t('dashboard.newDashboardPlaceholder')}
                     className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 </div>
@@ -339,7 +345,7 @@ export function Dashboard() {
                   onClick={handleAddSlug}
                   className="h-10 rounded-lg border border-border bg-muted/40 px-4 text-sm font-medium hover:bg-muted"
                 >
-                  Add dashboard
+                  {t('dashboard.addDashboard')}
                 </button>
                 <button
                   type="button"
@@ -347,28 +353,34 @@ export function Dashboard() {
                   onClick={() => saveDashboardsMutation.mutate(buildDashboardPayload())}
                   className="h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-foreground hover:opacity-95 disabled:opacity-60"
                 >
-                  {saveDashboardsMutation.isPending ? 'Saving…' : 'Save assignments'}
+                  {saveDashboardsMutation.isPending ? t('common.saving') : t('dashboard.saveAssignments')}
                 </button>
               </div>
               {saveDashboardsMutation.isError && (
                 <p className="mb-3 text-sm text-error" role="alert">
                   {saveDashboardsMutation.error instanceof Error
                     ? saveDashboardsMutation.error.message
-                    : 'Save failed'}
+                    : t('common.saveFailed')}
                 </p>
               )}
               <div className="max-h-[320px] overflow-auto rounded-md border border-border">
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                     <tr>
-                      <th className="px-3 py-2 font-medium text-foreground">Robot IP</th>
-                      <th className="px-3 py-2 font-medium text-foreground">Robot name</th>
-                      <th className="px-3 py-2 font-medium text-foreground">Dashboard</th>
+                      <th className="px-3 py-2 font-medium text-foreground">{t('dashboard.robotIp')}</th>
+                      <th className="px-3 py-2 font-medium text-foreground">{t('dashboard.robotName')}</th>
+                      <th className="px-3 py-2 font-medium text-foreground">{t('nav.dashboard')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {ips.map((ip) => {
-                      const robotLabel = assignTableRobotName(ip, snap, fleetLoading);
+                      const robotLabel = assignTableRobotName(
+                        ip,
+                        snap,
+                        fleetLoading,
+                        t('status.unreachable'),
+                        t('common.loading'),
+                      );
                       return (
                       <tr key={ip} className="border-t border-border">
                         <td className="px-3 py-2 font-mono text-xs text-foreground">{ip}</td>
@@ -381,10 +393,12 @@ export function Dashboard() {
                             onChange={(e) =>
                               setAssignDraft((prev) => ({ ...prev, [ip]: e.target.value }))
                             }
-                            aria-label={`Dashboard for ${robotLabel !== '—' ? `${robotLabel} ` : ''}${ip}`}
+                            aria-label={t('dashboard.dashboardFor', {
+                              robot: `${robotLabel !== '—' ? `${robotLabel} ` : ''}${ip}`,
+                            })}
                             className="w-full max-w-[240px] rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
-                            <option value="">Unassigned</option>
+                            <option value="">{t('dashboard.unassigned')}</option>
                             {slugKeys.map((slug) => (
                               <option key={slug} value={slug}>
                                 {slug}
@@ -411,23 +425,24 @@ export function Dashboard() {
           <div className="relative mb-8 overflow-hidden rounded-lg bg-gradient-to-r from-accent to-accent-secondary px-6 py-5 text-white shadow-accent">
             <div className="relative">
               <span className="font-mono text-xs uppercase tracking-[0.15em] text-white/90">
-                Fleet at a glance
+                {t('dashboard.atGlance')}
               </span>
               <p className="mt-1 font-display text-2xl font-normal tracking-tight">
-                {viewIps.length} robot{viewIps.length !== 1 ? 's' : ''} in this view
+                {t('dashboard.robotsInView', { count: viewIps.length })}
                 {statusFilter !== 'all' && (
                   <span className="ml-2 text-lg font-normal text-white/90">
-                    · {filteredIps.length} shown
-                    {statusFilter === 'attention' ? ' need attention' : ''}
+                    · {statusFilter === 'attention'
+                      ? t('dashboard.shownAttention', { count: filteredIps.length })
+                      : t('dashboard.shown', { count: filteredIps.length })}
                   </span>
                 )}
               </p>
             </div>
           </div>
 
-          <section className="mb-6" aria-label="Filter fleet by status">
+          <section className="mb-6" aria-label={t('dashboard.filterStatusAria')}>
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Filter by status
+              {t('dashboard.filterStatus')}
             </p>
             <div className="flex flex-wrap gap-2">
               {FLEET_FILTER_OPTIONS.map((opt) => {
@@ -448,7 +463,7 @@ export function Dashboard() {
                         : 'border-border bg-card text-muted-foreground hover:border-accent/35 hover:text-foreground'
                     }`}
                   >
-                    {opt.label}
+                    {t(opt.translationKey)}
                     <span
                       className={`ml-1.5 tabular-nums ${selected ? 'text-accent/90' : 'text-muted-foreground'}`}
                     >
@@ -460,9 +475,9 @@ export function Dashboard() {
             </div>
           </section>
 
-          <section className="mb-6" aria-label="Filter fleet by dashboard">
+          <section className="mb-6" aria-label={t('dashboard.filterDashboardAria')}>
             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Filter by dashboard
+              {t('dashboard.filterDashboard')}
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -475,7 +490,7 @@ export function Dashboard() {
                     : 'border-border bg-card text-muted-foreground hover:border-accent/35 hover:text-foreground'
                 }`}
               >
-                All
+                {t('common.all')}
                 <span className="ml-1.5 tabular-nums text-muted-foreground">({ips.length})</span>
               </button>
               {slugKeys.map((slug) => {
@@ -503,12 +518,12 @@ export function Dashboard() {
 
           {fleetQueryError && snap && (
             <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200" role="status">
-              Fleet refresh failed (showing last known data): {fleetQueryError}
+              {t('dashboard.refreshFailed', { error: fleetQueryError })}
             </p>
           )}
           {activeDashboardTab !== ALL_DASHBOARD && scopedIps.length === 0 ? (
             <p className="rounded-lg border border-border bg-card px-6 py-8 text-center text-muted-foreground">
-              No robots in this dashboard yet. Assign IPs above and click Save assignments.
+              {t('dashboard.emptyDashboard')}
             </p>
           ) : fleetFirstLoadFailed ? (
             <p className="rounded-lg border border-error/40 bg-error-muted/20 px-4 py-6 text-center text-error" role="alert">
@@ -516,7 +531,7 @@ export function Dashboard() {
             </p>
           ) : filteredIps.length === 0 ? (
             <p className="rounded-lg border border-border bg-card px-6 py-8 text-center text-muted-foreground">
-              No robots match this filter. Choose another status or clear the filter.
+              {t('dashboard.emptyFilter')}
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">

@@ -151,7 +151,10 @@ export type LastFailedRunTelemetry = {
   errorDetailFull: string | null;
 };
 
-export function telemetryLastFailedRunInfo(runs: unknown): LastFailedRunTelemetry | null {
+export function telemetryLastFailedRunInfo(
+  runs: unknown,
+  unknownProtocol = 'Unknown protocol',
+): LastFailedRunTelemetry | null {
   const r = coerceRunsForFleetStatus(runs);
   if (!r?.data?.length) return null;
   const failed = r.data.filter(isRunFailed);
@@ -166,7 +169,7 @@ export function telemetryLastFailedRunInfo(runs: unknown): LastFailedRunTelemetr
   const ts = formatNoteTimestamp(tsRaw ?? null);
   const err = firstRunErrorMessage(last);
   return {
-    displayName: getRunDisplayName(last),
+    displayName: getRunDisplayName(last, unknownProtocol),
     timestampLabel: ts || null,
     runId: last.id,
     errorMessage: err ? truncateForCard(err, _LAST_FAILED_ERR_MAX) : null,

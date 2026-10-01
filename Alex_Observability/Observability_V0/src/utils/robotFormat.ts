@@ -1,6 +1,7 @@
 /**
  * Shared formatters for robot data: pipettes and modules with name · serial.
  */
+import i18n from '../i18n';
 
 /** Display value or "—" when null/undefined/empty. */
 export function orDash(value: unknown): string {
@@ -12,7 +13,9 @@ export function orDash(value: unknown): string {
 function pipetteLabel(p: Record<string, unknown>, prefix: string): string {
   const name = p.model ?? p.name ?? '—';
   const serial = p.serial_number ?? p.serialNumber ?? p.id;
-  return serial ? `${prefix}: ${name} · ${serial}` : `${prefix}: ${name}`;
+  return serial
+    ? i18n.t('robotDetail.pipetteWithSerial', { mount: prefix, name, serial })
+    : i18n.t('robotDetail.pipette', { mount: prefix, name });
 }
 
 export function formatPipettes(pipettes: unknown): string[] {
@@ -20,17 +23,17 @@ export function formatPipettes(pipettes: unknown): string[] {
   const lines: string[] = [];
   const o = pipettes as Record<string, unknown>;
   if (o.left && typeof o.left === 'object') {
-    lines.push(pipetteLabel(o.left as Record<string, unknown>, 'Left'));
+    lines.push(pipetteLabel(o.left as Record<string, unknown>, i18n.t('robotDetail.leftMount')));
   }
   if (o.right && typeof o.right === 'object') {
-    lines.push(pipetteLabel(o.right as Record<string, unknown>, 'Right'));
+    lines.push(pipetteLabel(o.right as Record<string, unknown>, i18n.t('robotDetail.rightMount')));
   }
   const data = o.data as Record<string, unknown> | undefined;
   if (data?.left && typeof data.left === 'object') {
-    lines.push(pipetteLabel(data.left as Record<string, unknown>, 'Left'));
+    lines.push(pipetteLabel(data.left as Record<string, unknown>, i18n.t('robotDetail.leftMount')));
   }
   if (data?.right && typeof data.right === 'object') {
-    lines.push(pipetteLabel(data.right as Record<string, unknown>, 'Right'));
+    lines.push(pipetteLabel(data.right as Record<string, unknown>, i18n.t('robotDetail.rightMount')));
   }
   if (Array.isArray(pipettes)) {
     (pipettes as Array<Record<string, unknown>>).forEach((p, i) => {
@@ -70,5 +73,5 @@ export function formatNoteTimestamp(iso: string | null | undefined): string {
   if (iso == null || !String(iso).trim()) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  return d.toLocaleString(i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' });
 }

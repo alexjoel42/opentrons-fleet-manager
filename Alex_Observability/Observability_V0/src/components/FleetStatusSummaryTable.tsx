@@ -1,7 +1,8 @@
 import { Fragment } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   FLEET_ATTENTION_TABLE_ORDER,
-  FLEET_STATUS_LABELS,
+  FLEET_STATUS_TRANSLATION_KEYS,
   FLEET_SUMMARY_TABLE_ORDER,
   fleetAttentionCount,
   type FleetStatusFilter,
@@ -43,6 +44,7 @@ export function FleetStatusSummaryTable({
   onFleetStatusFilter,
   onSelectStatus,
 }: Props) {
+  const { t } = useTranslation();
   const attentionTotal = fleetAttentionCount(counts);
   const attentionTableOnly = fleetStatusFilter === 'attention';
   const statusesToShow = attentionTableOnly ? FLEET_ATTENTION_TABLE_ORDER : FLEET_SUMMARY_TABLE_ORDER;
@@ -54,15 +56,15 @@ export function FleetStatusSummaryTable({
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h2 className="font-display text-lg font-normal tracking-tight text-foreground">
-            Status summary
+            {t('summary.title')}
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Same colors as robot cards.{' '}
-            <span className="font-medium text-foreground">Errors and pauses</span> are listed first.
+            {t('summary.descriptionBefore')}{' '}
+            <span className="font-medium text-foreground">{t('summary.descriptionEmphasis')}</span>{' '}
+            {t('summary.descriptionAfter')}
             {attentionTableOnly && (
               <span className="mt-1 block font-medium text-foreground">
-                Matches <strong>Need attention</strong> in “Filter by status” — fleet cards below show only those
-                robots.
+                {t('summary.attentionMatches')}
               </span>
             )}
           </p>
@@ -83,12 +85,12 @@ export function FleetStatusSummaryTable({
             }`}
           >
             {fleetStatusFilter === 'attention' ? (
-              <>Show all statuses &amp; robots</>
+              <>{t('summary.showAll')}</>
             ) : (
               <>
-                {attentionTotal} robot{attentionTotal !== 1 ? 's' : ''} need attention
+                {t('summary.attentionRobots', { count: attentionTotal })}
                 <span className="mt-0.5 block text-xs font-normal opacity-90">
-                  Focus table + filter: Failed, Robot error, Unreachable, Awaiting recovery, Paused
+                  {t('summary.attentionFocus')}
                 </span>
               </>
             )}
@@ -98,14 +100,14 @@ export function FleetStatusSummaryTable({
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
         <table className="fleet-summary-table w-full min-w-[320px] text-left text-sm">
-          <caption className="sr-only">Fleet counts by robot and run status</caption>
+          <caption className="sr-only">{t('summary.caption')}</caption>
           <thead>
             <tr className="border-b border-border bg-muted/50 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <th scope="col" className="px-4 py-3">
-                Status
+                {t('common.status')}
               </th>
               <th scope="col" className="px-4 py-3 text-right">
-                Count
+                {t('common.count')}
               </th>
             </tr>
           </thead>
@@ -115,7 +117,7 @@ export function FleetStatusSummaryTable({
                 colSpan={2}
                 className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-foreground"
               >
-                Check first — failures, robot errors, unreachable, recovery, pauses
+                {t('summary.checkFirst')}
               </td>
             </tr>
             {statusesToShow.map((status) => {
@@ -130,7 +132,7 @@ export function FleetStatusSummaryTable({
                         colSpan={2}
                         className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                       >
-                        Running, completed, and idle
+                        {t('summary.normalGroup')}
                       </td>
                     </tr>
                   )}
@@ -160,15 +162,15 @@ export function FleetStatusSummaryTable({
                           data-fleet-status={status}
                           aria-hidden
                         />
-                        {FLEET_STATUS_LABELS[status]}
+                        {t(FLEET_STATUS_TRANSLATION_KEYS[status])}
                       </span>
                       {isAttention && (
                         <span className="mt-0.5 block text-xs font-normal text-muted-foreground sm:ml-2 sm:inline">
-                          {status === 'failed' && 'Run / protocol failure'}
-                          {status === 'error' && 'Robot health reports an error'}
-                          {status === 'unreachable' && 'Cannot reach robot on the network'}
-                          {status === 'awaiting-recovery' && 'Run needs intervention'}
-                          {status === 'paused' && 'Run is paused'}
+                          {status === 'failed' && t('summary.hintFailed')}
+                          {status === 'error' && t('summary.hintError')}
+                          {status === 'unreachable' && t('summary.hintUnreachable')}
+                          {status === 'awaiting-recovery' && t('summary.hintRecovery')}
+                          {status === 'paused' && t('summary.hintPaused')}
                         </span>
                       )}
                     </td>
@@ -187,12 +189,11 @@ export function FleetStatusSummaryTable({
         </table>
       </div>
       {onSelectStatus && !attentionTableOnly && (
-        <p className="mt-2 text-xs text-muted-foreground">Click a row to filter the fleet list by that status.</p>
+        <p className="mt-2 text-xs text-muted-foreground">{t('summary.rowHelp')}</p>
       )}
       {onSelectStatus && attentionTableOnly && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Click a row to narrow to one status, or open a robot card below. Use{' '}
-          <strong>Need attention</strong> in the filter bar — same selection as this view.
+          {t('summary.attentionHelp')}
         </p>
       )}
     </div>
