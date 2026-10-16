@@ -378,6 +378,47 @@ class BaseRobot:
         response = self._get(ip_address, f"runs/{run_id}/commands", scheme=scheme, port=port)
         return response.json()
 
+    def get_run_download(
+        self,
+        ip_address: str,
+        run_id: str,
+        *,
+        protocol: bool = False,
+        csv_input: bool = False,
+        csv_output: bool = False,
+        scheme: str | None = None,
+        port: int | None = None,
+        timeout: float | None = None,
+    ) -> bytes | None:
+        """Fetch a zip from GET /runs/{run_id}/download.
+
+        Query flags are opt-in. ``protocol`` includes the uploaded protocol source.
+        ``csv_input`` includes CSV runtime-parameter files for this run.
+        ``csv_output`` includes CSV files the run wrote. Returns None on 204 or 404,
+        or when the body is not a zip (older robot software has no such route).
+        """
+        params: dict[str, str] = {}
+        if protocol:
+            params["protocol"] = "true"
+        if csv_input:
+            params["csvInput"] = "true"
+        if csv_output:
+            params["csvOutput"] = "true"
+        url = self._url(ip_address, f"runs/{run_id}/download", scheme=scheme, port=port)
+        response = httpx.get(
+            url,
+            headers=self._headers,
+            params=params,
+            timeout=self.timeout if timeout is None else timeout,
+        )
+        if response.status_code in (204, 404):
+            return None
+        if response.status_code != 200:
+            response.raise_for_status()
+        if not response.content.startswith(b"PK"):
+            return None
+        return response.content
+
     def get_log_file(
         self,
         ip_address: str,
@@ -1860,6 +1901,8 @@ LOG_IDENTIFIERS = [
 ]
 # Large server logs (auth, serial, update) often exceed the default 10s robot timeout.
 LOG_FETCH_TIMEOUT = 60.0
+# Protocol source plus CSV runtime-parameter files from GET /runs/{id}/download.
+RUN_DOWNLOAD_TIMEOUT = 30.0
 
 
 def _run_from_list(runs_data: Any) -> dict[str, Any] | None:
@@ -1886,20 +1929,98 @@ def _run_from_list(runs_data: Any) -> dict[str, Any] | None:
     return data[-1] if data else None
 
 
-def _build_troubleshooting_zip(ip: str, run: dict[str, Any]) -> bytes:
-    """Build an in-memory zip with ERROR_SUMMARY.txt, run_log.json, and logs/.
+def _files_from_run_download(blob: bytes) -> list[tuple[str, bytes]]:
+    """Flatten a robot run-download zip to (basename, content) pairs.
 
-    ERROR_SUMMARY includes the main protocol file name when metadata is available.
-    The protocol source file is not downloaded.
+    Names are the file's basename only, so a robot path cannot escape ``protocol/``.
+    """
+    files: list[tuple[str, bytes]] = []
+    used: set[str] = set()
+    try:
+        with zipfile.ZipFile(io.BytesIO(blob)) as src:
+            for info in src.infolist():
+                if info.is_dir():
+                    continue
+                name = Path(info.filename).name
+                if not name or name in {".", ".."}:
+                    continue
+                unique = name
+                stem, suffix = Path(name).stem, Path(name).suffix
+                n = 2
+                while unique in used:
+                    unique = f"{stem}_{n}{suffix}"
+                    n += 1
+                used.add(unique)
+                files.append((unique, src.read(info)))
+    except zipfile.BadZipFile:
+        _log.warning("Run download response was not a valid zip")
+        return []
+    return files
+
+
+def _runtime_parameter_lines(run: dict[str, Any]) -> list[str]:
+    """One line per runtime parameter, using the value chosen for this run."""
+    params = run.get("runTimeParameters")
+    if not isinstance(params, list) or not params:
+        return ["  None"]
+    lines: list[str] = []
+    for param in params:
+        if not isinstance(param, dict):
+            continue
+        name = param.get("variableName") or param.get("displayName") or "—"
+        kind = str(param.get("type") or "value")
+        if kind == "csv_file":
+            file_info = param.get("file") if isinstance(param.get("file"), dict) else {}
+            file_name = file_info.get("name") if isinstance(file_info.get("name"), str) else None
+            file_id = file_info.get("id") or param.get("fileId") or param.get("value")
+            shown = file_name or (str(file_id) if file_id else "none")
+            if file_name and file_id:
+                shown = f"{file_name} (id {file_id})"
+            lines.append(f"  {name} (csv_file): {shown}")
+            continue
+        value = json.dumps(param.get("value"), default=str)
+        line = f"  {name} ({kind}): {value}"
+        if "default" in param and param.get("default") != param.get("value"):
+            line += f" (default {json.dumps(param.get('default'), default=str)})"
+        lines.append(line)
+    return lines or ["  None"]
+
+
+def _fetch_run_download_files(ip: str, run_id: str) -> list[tuple[str, bytes]]:
+    """Protocol source plus CSV runtime-parameter and CSV output files, if the robot has them."""
+    try:
+        blob = robot_client.get_run_download(
+            ip,
+            run_id,
+            protocol=True,
+            csv_input=True,
+            csv_output=True,
+            timeout=RUN_DOWNLOAD_TIMEOUT,
+        )
+    except Exception as exc:
+        _log.warning("Run download failed for %s run %s: %s", ip, run_id, exc)
+        return []
+    if not blob:
+        return []
+    return _files_from_run_download(blob)
+
+
+def _build_troubleshooting_zip(ip: str, run: dict[str, Any]) -> bytes:
+    """Build an in-memory zip with ERROR_SUMMARY.txt, run_log.json, protocol/, and logs/.
+
+    ``protocol/`` holds the uploaded protocol source and any CSV runtime-parameter
+    or CSV output files from GET /runs/{id}/download. Runtime parameter lines in
+    ERROR_SUMMARY are the values this run used; the protocol file keeps its defaults.
 
     Args:
         ip: Robot IP or hostname.
-        run: Run dict (id, errors, pipettes, modules, protocolId, etc.).
+        run: Run dict (id, errors, pipettes, modules, protocolId, runTimeParameters, etc.).
 
     Returns:
         Zip file content as bytes.
     """
-    run_id = run.get("id") or "unknown"
+    run_id = str(run.get("id") or "unknown")
+    protocol_files = _fetch_run_download_files(ip, run_id) if run_id != "unknown" else []
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         # 1. ERROR_SUMMARY.txt: error message(s) + robot + pipette + module serials
@@ -1960,8 +2081,27 @@ def _build_troubleshooting_zip(ip: str, run: dict[str, Any]) -> bytes:
                 lines.append(f"  {model} — Serial: {serial}")
         if not modules:
             lines.append("  None")
-        lines.extend(["", "=== PROTOCOL ===", _protocol_file_name(ip, run) or "N/A"])
+        main_protocol = next(
+            (name for name, _content in protocol_files if name.endswith((".py", ".json"))),
+            None,
+        )
+        lines.extend(["", "=== PROTOCOL ===", main_protocol or _protocol_file_name(ip, run) or "N/A"])
+        if protocol_files:
+            lines.append("Included files:")
+            for name, _content in protocol_files:
+                lines.append(f"  protocol/{name}")
+        else:
+            lines.append("Protocol source was not available from the robot.")
+        lines.extend([
+            "",
+            "=== RUNTIME PARAMETERS ===",
+            "Values are what this run used. The protocol file keeps its uploaded defaults.",
+        ])
+        lines.extend(_runtime_parameter_lines(run))
         zf.writestr("ERROR_SUMMARY.txt", "\n".join(lines))
+
+        for name, content in protocol_files:
+            zf.writestr(f"protocol/{name}", content)
 
         # 2. Run log: run payload + commands if available
         run_log: dict[str, Any] = {"run": run}
@@ -1986,7 +2126,8 @@ def get_robot_troubleshooting_zip(
 ) -> Response:
     """Build and return troubleshooting.zip for the robot (optional runId query for specific run).
 
-    Zip contains ERROR_SUMMARY.txt, run_log.json, and logs/.
+    Zip contains ERROR_SUMMARY.txt, run_log.json, protocol/ (source and CSV runtime
+    parameters when the robot still has them), and logs/.
     If runId is omitted, uses current or latest run with errors from GET /runs.
     """
     validate_ip(ip)
